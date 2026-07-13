@@ -336,7 +336,7 @@ def build_static_html(questions: list[dict]) -> str:
     <div class="settings-section" id="cloudSyncSettings">
       <div class="setting-row"><div class="setting-copy"><strong>Sync across devices</strong><span>Keep appearance, statistics, and score history together. No player account or password is required.</span></div><div class="settings-actions"><button id="syncSetupBtn" type="button">Enable Sync</button><button id="syncNowBtn" class="secondary hidden" type="button">Sync Now</button><button id="showPairingBtn" class="secondary hidden" type="button">Pair a Device</button></div></div>
       <p id="syncStatus" class="settings-note" role="status">Sync is off. Your information remains in this browser.</p>
-      <div id="pairingPanel" class="pairing-panel hidden" aria-live="polite"><strong>Pair another device</strong><p>Open the camera on the other device and scan this QR code. It will join the same anonymous user and combine offline activity without double-counting.</p><canvas id="pairingQr" width="240" height="240" aria-label="Device pairing QR code"></canvas><div class="settings-actions"><button id="copyPairingLink" class="secondary" type="button">Copy Pairing Link</button><button id="hidePairingBtn" class="secondary" type="button">Done</button></div></div>
+      <div id="pairingPanel" class="pairing-panel hidden" aria-live="polite"><strong>Pair another device</strong><p>Open the camera on the other device and scan this QR code. It will join the same anonymous user and combine offline activity without double-counting.</p><div id="pairingQr" class="pairing-qr" role="img" aria-label="Device pairing QR code"></div><div class="settings-actions"><button id="copyPairingLink" class="secondary" type="button">Copy Pairing Link</button><button id="hidePairingBtn" class="secondary" type="button">Done</button></div></div>
     </div>
     <div class="settings-section" id="analyticsSettings">
       <div class="setting-row"><div class="setting-copy"><strong>Share anonymous quiz analytics</strong><span>Off by default. When enabled, the entire saved quiz-statistics record is shared, along with an approximate state or region derived from the network address. No name, email, password, or raw IP address is stored. The information is used only for quiz-performance analysis and quiz improvements.</span></div><label class="switch-control"><input id="analyticsConsentToggle" type="checkbox" disabled /><span class="switch-track" aria-hidden="true"></span><span class="switch-label">Off</span></label></div>
@@ -606,6 +606,7 @@ window.dispatchEvent(new CustomEvent("sfmc:bridge-ready"));
 document.querySelectorAll("[data-play-mode][data-question-count]").forEach(btn=>{btn.onclick=()=>start(`${btn.dataset.playMode}-${btn.dataset.questionCount}`);});applyThemePreference();showModeSelect();
 })();
 </script>
+<script src="assets/qrcode.min.js"></script>
 <script type="module" src="sync.js"></script>
 </body>
 </html>'''

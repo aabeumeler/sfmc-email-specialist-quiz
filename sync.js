@@ -2,7 +2,6 @@ const CONFIG = window.SFMC_SYNC_CONFIG || {};
 const CLOUD_STATE_KEY = "sfmcCloudSyncState_v1";
 const PLAYER_AUTH_KEY = "sfmc-player-auth-v1";
 const SUPABASE_MODULE = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.2/+esm";
-const QR_CODE_SCRIPT = "https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js";
 
 const elements = {
   setup: document.getElementById("syncSetupBtn"),
@@ -110,6 +109,12 @@ function setStatus(message, kind = "") {
   elements.status.textContent = message;
   elements.status.classList.toggle("sync-status-good", kind === "good");
   elements.status.classList.toggle("sync-status-error", kind === "error");
+}
+
+function readableError(error, fallback) {
+  if (typeof error === "string" && error.trim()) return error;
+  if (typeof error?.message === "string" && error.message.trim()) return error.message;
+  return fallback;
 }
 
 function updateConsentControl(enabled) {
@@ -346,24 +351,26 @@ function makePairingLink() {
   return url.href;
 }
 
-async function loadQrCode() {
-  if (window.QRCode?.toCanvas) return window.QRCode;
-  await new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[src="${QR_CODE_SCRIPT}"]`);
-    if (existing) {
-      existing.addEventListener("load", resolve, { once: true });
-      existing.addEventListener("error", reject, { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = QR_CODE_SCRIPT;
-    script.referrerPolicy = "no-referrer";
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
+function renderPairingQr(link) {
+  if (typeof window.QRCode !== "function") throw new Error("The built-in QR generator did not load.");
+  elements.pairingQr.replaceChildren();
+  new window.QRCode(elements.pairingQr, {
+    text: link,
+    width: 240,
+    height: 240,
+    colorDark: "#111827",
+    colorLight: "#ffffff",
+    correctLevel: window.QRCode.CorrectLevel.M
   });
-  if (!window.QRCode?.toCanvas) throw new Error("The pairing QR code could not be created.");
-  return window.QRCode;
+  if (!elements.pairingQr.firstElementChild) throw new Error("This browser could not draw the QR image.");
+}
+
+function showPairingLinkFallback() {
+  elements.pairingQr.replaceChildren();
+  const fallback = document.createElement("p");
+  fallback.className = "pairing-qr-fallback";
+  fallback.textContent = "QR image unavailable. Use Copy Pairing Link below.";
+  elements.pairingQr.appendChild(fallback);
 }
 
 async function showPairingCode() {
@@ -379,13 +386,18 @@ async function showPairingCode() {
     cloudState.joinToken = freshToken;
     saveCloudState();
     lastPairingLink = makePairingLink();
-    const QRCode = await loadQrCode();
-    await QRCode.toCanvas(elements.pairingQr, lastPairingLink, { width: 240, margin: 2, errorCorrectionLevel: "M" });
     elements.pairingPanel?.classList.remove("hidden");
-    setStatus("Pairing code ready. For safety, it expires as soon as one device uses it.", "good");
+    try {
+      renderPairingQr(lastPairingLink);
+      setStatus("Pairing code ready. For safety, it expires as soon as one device uses it.", "good");
+    } catch (qrError) {
+      console.error(qrError);
+      showPairingLinkFallback();
+      setStatus("The QR image could not be displayed. Use Copy Pairing Link instead.", "error");
+    }
   } catch (error) {
     console.error(error);
-    setStatus(`The pairing code could not be created: ${error.message}`, "error");
+    setStatus(`The pairing code could not be created: ${readableError(error, "The secure service did not return an error message.")}`, "error");
   } finally {
     syncing = false;
     renderControls();
