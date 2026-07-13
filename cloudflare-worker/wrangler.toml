@@ -1,0 +1,10 @@
+name = "sfmc-quiz-region"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+[observability]
+enabled = false
+
+[vars]
+ALLOWED_ORIGIN = "https://aabeumeler.github.io"
+
