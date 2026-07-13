@@ -312,12 +312,15 @@ def build_static_html(questions: list[dict]) -> str:
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#fff8e9" />
+<meta id="themeColor" name="theme-color" content="#d9ecff" />
 <title>SFMC Email Specialist Practice</title>
+<script>
+(()=>{const key="sfmcThemePreferenceV1";let preference="auto";try{const saved=localStorage.getItem(key);if(["auto","light","dark"].includes(saved))preference=saved;}catch(e){}const hour=new Date().getHours();const theme=preference==="auto"?(hour>=7&&hour<19?"light":"dark"):preference;document.documentElement.dataset.theme=theme;document.documentElement.dataset.themePreference=preference;document.getElementById("themeColor")?.setAttribute("content",theme==="dark"?"#17243f":"#d9ecff");})();
+</script>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="cloudBackground" class="cloud-bg" aria-hidden="true"></div><div class="top-cloud-fade" aria-hidden="true"></div>
+<div class="cloud-bg" aria-hidden="true"></div>
 <div class="app">
 <header><h1>SFMC Email Specialist</h1><div class="title-sub">practice</div></header>
 <section id="modeSelect" class="card">
@@ -327,8 +330,8 @@ def build_static_html(questions: list[dict]) -> str:
   </div></div></div>
   <div id="settingsPanel" class="collapsible-home-panel" aria-hidden="true"><div class="collapsible-home-panel-inner"><div class="settings-surface">
     <div class="settings-title-row"><h3>Settings</h3><button id="settingsClose" class="settings-close secondary" type="button">Close</button></div>
-    <div class="setting-row"><div class="setting-copy"><strong>Dark mode</strong><span>Choose a light or dark appearance.</span></div><div class="segmented-toggle" role="group" aria-label="Dark mode"><button id="darkModeOn" type="button" aria-pressed="false">On</button><button id="darkModeOff" class="active" type="button" aria-pressed="true">Off</button></div></div>
-    <p class="settings-note">The control is a visual preview only in this build. It does not change the app theme yet.</p>
+    <div class="setting-row"><div class="setting-copy"><strong>Appearance</strong><span>Choose when the app uses its daytime or nighttime sky.</span></div><div class="segmented-toggle" role="group" aria-label="Appearance"><button id="themeAuto" class="active" type="button" aria-pressed="true">Auto</button><button id="themeLight" type="button" aria-pressed="false">Light</button><button id="themeDark" type="button" aria-pressed="false">Dark</button></div></div>
+    <p class="settings-note">Auto is the default. It uses light mode from 7:00 AM to 6:59 PM and dark mode from 7:00 PM to 6:59 AM, based on this device's local time.</p>
     <div class="settings-danger-zone"><div><strong>Saved statistics</strong><span>Permanently remove saved scores, study time, and missed-question history from this browser.</span></div><button id="resetStatsBtn" type="button" class="danger">Reset Stats</button></div>
   </div></div></div>
   <div id="statsPanel" class="collapsible-home-panel" aria-hidden="true"><div class="collapsible-home-panel-inner"><div class="stats-card"><div class="settings-title-row"><h3>Stats</h3><button id="statsClose" class="settings-close secondary" type="button">Close</button></div><div id="statsSummary"></div></div></div></div>
@@ -346,6 +349,8 @@ def build_static_html(questions: list[dict]) -> str:
 const QUESTIONS = __QUESTIONS_JSON__;
 (() => {
 const STATS_KEY="sfmcQuizStats_v1";
+const THEME_KEY="sfmcThemePreferenceV1";
+const THEME_OPTIONS=["auto","light","dark"];
 const IDLE_LIMIT_MS=2*60*1000;
 const state={allQuestions:QUESTIONS,questions:QUESTIONS,mode:null,sampleType:"all",playCategory:"quiz",questionCount:20,statsCategory:"all",statsLength:"all",graphOpen:true,graphRangeDays:7,currentIndex:0,answers:[],checked:[],locked:false,note:"",startedAt:null,recordedSession:false,activeStudySeconds:0,lastStudyTick:null,lastInteractionAt:null,studyTimerRunning:false};
 
@@ -365,31 +370,30 @@ function setStatsOpen(open){
   els.statsButton.setAttribute("aria-expanded",open?"true":"false");
   els.statsButton.setAttribute("aria-label",open?"Hide saved stats":"Show saved stats");
 }
-function setDarkModePreviewChoice(choice){
-  const on=choice==="on";
-  els.darkModeOn?.classList.toggle("active",on);
-  els.darkModeOff?.classList.toggle("active",!on);
-  els.darkModeOn?.setAttribute("aria-pressed",on?"true":"false");
-  els.darkModeOff?.setAttribute("aria-pressed",on?"false":"true");
+function readThemePreference(){try{const saved=localStorage.getItem(THEME_KEY);return THEME_OPTIONS.includes(saved)?saved:"auto";}catch(e){return "auto";}}
+let themePreference=readThemePreference();
+function resolveTheme(preference=themePreference,date=new Date()){if(preference==="light"||preference==="dark")return preference;const hour=date.getHours();return hour>=7&&hour<19?"light":"dark";}
+function updateThemeControls(){const controls=[[els.themeAuto,"auto"],[els.themeLight,"light"],[els.themeDark,"dark"]];controls.forEach(([button,value])=>{const active=value===themePreference;button?.classList.toggle("active",active);button?.setAttribute("aria-pressed",active?"true":"false");});}
+function applyThemePreference(){const theme=resolveTheme();document.documentElement.dataset.theme=theme;document.documentElement.dataset.themePreference=themePreference;const meta=document.getElementById("themeColor");if(meta)meta.setAttribute("content",theme==="dark"?"#17243f":"#d9ecff");updateThemeControls();}
+function setThemePreference(choice){themePreference=THEME_OPTIONS.includes(choice)?choice:"auto";try{localStorage.setItem(THEME_KEY,themePreference);}catch(e){console.warn("Theme preference could not be saved in this browser.",e);}applyThemePreference();
 }
 
 function showCelebration(){const el=document.getElementById("celebrationMascot");if(el){el.classList.add("show");}}
 function hideCelebration(){const el=document.getElementById("celebrationMascot");if(el){el.classList.remove("show");}}
-const els={modeSelect:document.getElementById("modeSelect"),quizArea:document.getElementById("quizArea"),resultsArea:document.getElementById("resultsArea"),questionCount:document.getElementById("questionCount"),statsSummary:document.getElementById("statsSummary"),statsPanel:document.getElementById("statsPanel"),statsButton:document.getElementById("statsButton"),settingsGear:document.getElementById("settingsGear"),settingsPanel:document.getElementById("settingsPanel"),settingsClose:document.getElementById("settingsClose"),darkModeOn:document.getElementById("darkModeOn"),darkModeOff:document.getElementById("darkModeOff"),resetStatsBtn:document.getElementById("resetStatsBtn"),statsClose:document.getElementById("statsClose")};
+const els={modeSelect:document.getElementById("modeSelect"),quizArea:document.getElementById("quizArea"),resultsArea:document.getElementById("resultsArea"),questionCount:document.getElementById("questionCount"),statsSummary:document.getElementById("statsSummary"),statsPanel:document.getElementById("statsPanel"),statsButton:document.getElementById("statsButton"),settingsGear:document.getElementById("settingsGear"),settingsPanel:document.getElementById("settingsPanel"),settingsClose:document.getElementById("settingsClose"),themeAuto:document.getElementById("themeAuto"),themeLight:document.getElementById("themeLight"),themeDark:document.getElementById("themeDark"),resetStatsBtn:document.getElementById("resetStatsBtn"),statsClose:document.getElementById("statsClose")};
 if(els.settingsGear)els.settingsGear.onclick=()=>setSettingsOpen(!els.settingsPanel.classList.contains("open"));
 if(els.statsButton)els.statsButton.onclick=()=>setStatsOpen(!els.statsPanel.classList.contains("open"));
 if(els.settingsClose)els.settingsClose.onclick=()=>setSettingsOpen(false);
 if(els.statsClose)els.statsClose.onclick=()=>setStatsOpen(false);
-if(els.darkModeOn)els.darkModeOn.onclick=()=>setDarkModePreviewChoice("on");
-if(els.darkModeOff)els.darkModeOff.onclick=()=>setDarkModePreviewChoice("off");
+if(els.themeAuto)els.themeAuto.onclick=()=>setThemePreference("auto");
+if(els.themeLight)els.themeLight.onclick=()=>setThemePreference("light");
+if(els.themeDark)els.themeDark.onclick=()=>setThemePreference("dark");
 if(els.resetStatsBtn)els.resetStatsBtn.onclick=()=>{if(confirm("Confirm test history reset: this will permanently delete all saved scores, study time, and missed-question history from this browser. Continue?")){clearStoredStats();state.statsCategory="all";state.statsLength="all";renderStatsSummary();setSettingsOpen(false);}};
+setInterval(()=>{if(themePreference==="auto")applyThemePreference();},60000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&themePreference==="auto")applyThemePreference();});
 const reduceMotion=typeof window.matchMedia==="function"&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const scrollBehavior=reduceMotion?"auto":"smooth";
 function scrollWindow(top){try{window.scrollTo({top,behavior:scrollBehavior});}catch(e){window.scrollTo(0,top);}}
-const cloudBackground=document.getElementById("cloudBackground");let parallaxQueued=false;
-function applyParallax(){parallaxQueued=false;if(!cloudBackground||reduceMotion)return;const y=window.scrollY||window.pageYOffset||0;const yMove=Math.round(-y*.075);cloudBackground.style.transform=`translate3d(0, ${yMove}px, 0)`;}
-function queueParallax(){if(!reduceMotion&&!parallaxQueued){parallaxQueued=true;requestAnimationFrame(applyParallax);}}
-window.addEventListener("scroll",queueParallax,{passive:true});window.addEventListener("resize",queueParallax);
 function escapeHtml(v){return String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");}
 function getStats(){const empty={totalStudySeconds:0,sessions:[],questions:{},questionModes:{},createdAt:new Date().toISOString(),updatedAt:null};try{const saved=localStorage.getItem(STATS_KEY);if(!saved)return empty;const parsed=JSON.parse(saved);return {totalStudySeconds:Number(parsed.totalStudySeconds)||0,sessions:Array.isArray(parsed.sessions)?parsed.sessions:[],questions:parsed.questions&&typeof parsed.questions==="object"?parsed.questions:{},questionModes:parsed.questionModes&&typeof parsed.questionModes==="object"?parsed.questionModes:{},createdAt:parsed.createdAt||empty.createdAt,updatedAt:parsed.updatedAt||null};}catch(e){console.warn("Stats were unreadable. Starting fresh.",e);return empty;}}
 function saveStats(stats){stats.updatedAt=new Date().toISOString();try{localStorage.setItem(STATS_KEY,JSON.stringify(stats));}catch(e){console.warn("Stats could not be saved in this browser.",e);}}
@@ -560,7 +564,7 @@ function start(sample){
   state.questions=qs;state.mode=mode;state.sampleType=parsed.sampleType;state.playCategory=category;state.questionCount=count;state.currentIndex=0;state.answers=Array(qs.length).fill(null).map(()=>[]);state.checked=Array(qs.length).fill(false);state.locked=false;state.note=note;state.startedAt=Date.now();state.recordedSession=false;startStudyClock();renderCurrent("question");
 }
 function showModeSelect(){hideCelebration();if(isQuizActive())stopStudyClock();els.quizArea.classList.add("hidden");els.resultsArea.classList.add("hidden");els.modeSelect.classList.remove("hidden");setSettingsOpen(false);setStatsOpen(false);renderStatsSummary();scrollWindow(0);}
-document.querySelectorAll("[data-play-mode][data-question-count]").forEach(btn=>{btn.onclick=()=>start(`${btn.dataset.playMode}-${btn.dataset.questionCount}`);});queueParallax();showModeSelect();
+document.querySelectorAll("[data-play-mode][data-question-count]").forEach(btn=>{btn.onclick=()=>start(`${btn.dataset.playMode}-${btn.dataset.questionCount}`);});applyThemePreference();showModeSelect();
 })();
 </script>
 </body>
