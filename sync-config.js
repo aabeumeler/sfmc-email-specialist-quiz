@@ -3,9 +3,8 @@ window.SFMC_SYNC_CONFIG = Object.freeze({
   supabaseUrl: "https://oknwzpqzrhzzlykqfunb.supabase.co",
   supabasePublishableKey: "sb_publishable_VP3Jv-sUTyGuLIcBDXWUTQ_RpqHEG6a",
 
-  // Fill this in after deploying the included Cloudflare region worker.
-  // It is called only after a user opts in to anonymous analytics.
-  regionEndpoint: "",
+  // Called only after a user opts in to anonymous analytics.
+  regionEndpoint: "https://sfmc-quiz-region.aabeumeler.workers.dev",
 
   adminPage: "admin.html"
 });
