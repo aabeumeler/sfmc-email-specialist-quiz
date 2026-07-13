@@ -22,18 +22,21 @@
   </div></div></div>
   <div id="settingsPanel" class="collapsible-home-panel" aria-hidden="true"><div class="collapsible-home-panel-inner"><div class="settings-surface">
     <div class="settings-title-row"><h3>Settings</h3><button id="settingsClose" class="settings-close secondary" type="button">Close</button></div>
-    <div class="setting-row"><div class="setting-copy"><strong>Appearance</strong><span>Choose when the app uses its daytime or nighttime sky.</span></div><div class="segmented-toggle" role="group" aria-label="Appearance"><button id="themeAuto" class="active" type="button" aria-pressed="true">Auto</button><button id="themeLight" type="button" aria-pressed="false">Light</button><button id="themeDark" type="button" aria-pressed="false">Dark</button></div></div>
-    <p class="settings-note">Auto is the default. It uses light mode from 7:00 AM to 6:59 PM and dark mode from 7:00 PM to 6:59 AM, based on this device's local time.</p>
-    <div class="settings-section" id="cloudSyncSettings">
+    <div class="settings-grid">
+    <div class="settings-block settings-appearance"><div class="setting-row"><div class="setting-copy"><strong>Appearance</strong><span>Choose when the app uses its daytime or nighttime sky.</span></div><div class="segmented-toggle" role="group" aria-label="Appearance"><button id="themeAuto" class="active" type="button" aria-pressed="true">Auto</button><button id="themeLight" type="button" aria-pressed="false">Light</button><button id="themeDark" type="button" aria-pressed="false">Dark</button></div></div>
+    <p class="settings-note">Auto is the default. It uses light mode from 7:00 AM to 6:59 PM and dark mode from 7:00 PM to 6:59 AM, based on this device's local time.</p></div>
+    <div class="settings-section settings-block" id="cloudSyncSettings">
       <div class="setting-row"><div class="setting-copy"><strong>Sync across devices</strong><span>Keep appearance, statistics, and score history together. No player account or password is required.</span></div><div class="settings-actions"><button id="syncSetupBtn" type="button">Enable Sync</button><button id="syncNowBtn" class="secondary hidden" type="button">Sync Now</button><button id="showPairingBtn" class="secondary hidden" type="button">Pair a Device</button></div></div>
       <p id="syncStatus" class="settings-note" role="status">Sync is off. Your information remains in this browser.</p>
       <div id="pairingPanel" class="pairing-panel hidden" aria-live="polite"><strong>Pair another device</strong><p>Open the camera on the other device and scan this QR code. It will join the same anonymous user and combine offline activity without double-counting.</p><div id="pairingQr" class="pairing-qr" role="img" aria-label="Device pairing QR code"></div><div class="settings-actions"><button id="copyPairingLink" class="secondary" type="button">Copy Pairing Link</button><button id="hidePairingBtn" class="secondary" type="button">Done</button></div></div>
     </div>
-    <div class="settings-section" id="analyticsSettings">
+    <div class="settings-section settings-block" id="analyticsSettings">
       <div class="setting-row"><div class="setting-copy"><strong>Share anonymous quiz analytics</strong><span>Off by default. When enabled, the entire saved quiz-statistics record is shared, along with an approximate state or region derived from the network address. No name, email, password, or raw IP address is stored. The information is used only for quiz-performance analysis and quiz improvements.</span></div><label class="switch-control"><input id="analyticsConsentToggle" type="checkbox" disabled /><span class="switch-track" aria-hidden="true"></span><span class="switch-label">Off</span></label></div>
       <p class="settings-note">Turning this off stops future analytics sharing and deletes previously shared statistics and location from the admin dashboard. Private device sync can remain on.</p>
     </div>
-    <div class="settings-danger-zone"><div><strong>Saved statistics</strong><span>Permanently remove saved scores, study time, streaks, and missed-question history. When sync is enabled, the reset also applies to paired devices.</span></div><button id="resetStatsBtn" type="button" class="danger">Reset Stats</button></div>
+    <div class="settings-danger-zone settings-block"><div><strong>Saved statistics</strong><span>Permanently remove saved scores, study time, streaks, and missed-question history. When sync is enabled, the reset also applies to paired devices.</span></div><button id="resetStatsBtn" type="button" class="danger">Reset Stats</button></div>
+    </div>
+    <div class="settings-admin-access"><div><strong>Administrator tools</strong><span>Open the protected analytics dashboard.</span></div><a class="settings-admin-link" href="admin.html">Admin Access</a></div>
   </div></div></div>
   <div id="statsPanel" class="collapsible-home-panel" aria-hidden="true"><div class="collapsible-home-panel-inner"><div class="stats-card"><div class="settings-title-row"><h3>Stats</h3><button id="statsClose" class="settings-close secondary" type="button">Close</button></div><div id="statsSummary"></div></div></div></div>
   <div class="grid">
