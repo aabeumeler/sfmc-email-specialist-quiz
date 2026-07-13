@@ -39,6 +39,7 @@ html{
   -webkit-text-size-adjust:100%;
   text-size-adjust:100%;
   background-color:#d9ecff;
+  transition:background-color 1s ease-in-out;
 }
 html[data-theme="dark"]{background-color:#17243f}
 body{
@@ -59,18 +60,39 @@ body{
   z-index:0;
   pointer-events:none;
   background-color:#d9ecff;
-  background-image:url("assets/backgrounds/sky-light-desktop.webp");
+  overflow:hidden;
+  transition:background-color 1s ease-in-out;
+}
+.cloud-bg::before,.cloud-bg::after{
+  content:"";
+  position:absolute;
+  inset:0;
   background-repeat:no-repeat;
   background-position:center center;
   background-size:cover;
+  transition:opacity 1s ease-in-out;
+  will-change:opacity;
+}
+.cloud-bg::before{
+  background-image:url("assets/backgrounds/sky-light-desktop.webp");
+  opacity:1;
+}
+.cloud-bg::after{
+  background-image:url("assets/backgrounds/sky-dark-desktop.webp");
+  opacity:0;
 }
 html[data-theme="dark"] .cloud-bg{
   background-color:#17243f;
-  background-image:url("assets/backgrounds/sky-dark-desktop.webp");
+}
+html[data-theme="dark"] .cloud-bg::before{
+  opacity:0;
+}
+html[data-theme="dark"] .cloud-bg::after{
+  opacity:1;
 }
 @media(orientation:portrait) and (max-width:1024px){
-  .cloud-bg{background-image:url("assets/backgrounds/sky-light-mobile.webp")}
-  html[data-theme="dark"] .cloud-bg{background-image:url("assets/backgrounds/sky-dark-mobile.webp")}
+  .cloud-bg::before{background-image:url("assets/backgrounds/sky-light-mobile.webp")}
+  .cloud-bg::after{background-image:url("assets/backgrounds/sky-dark-mobile.webp")}
 }
 .app{position:relative;z-index:1;width:min(1080px,calc(100% - 24px));margin:calc(14px + env(safe-area-inset-top)) auto 36px}
 header,.card{
@@ -347,5 +369,5 @@ label.option:active{background:#fff0c6;transform:scale(.997)}label.option.correc
 
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
-  .cloud-bg{will-change:auto;transform:none!important}
+  .cloud-bg,.cloud-bg::before,.cloud-bg::after{will-change:auto;transform:none!important}
 }
