@@ -1,9 +1,9 @@
 
 :root{
-  --bg:#fff7e8;
+  --bg:#fbf3e6;
   --bg2:#eef8ee;
-  --card:#fffdf6;
-  --card2:#fffaf0;
+  --card:#faf7ef;
+  --card2:#f8f3e9;
   --text:#1c2333;
   --ink:#22211f;
   --muted:#746f66;
@@ -77,6 +77,7 @@ body{
 .cloud-bg::before{
   background-image:url("assets/backgrounds/sky-light-desktop.webp");
   opacity:1;
+  filter:brightness(.985) saturate(.99);
 }
 .cloud-bg::after{
   background-image:url("assets/backgrounds/sky-dark-desktop.webp");
@@ -411,6 +412,52 @@ html[data-theme="dark"] .celebration-mascot .mascot-dark{opacity:1}
   .cloud-bg,.cloud-bg::before,.cloud-bg::after{will-change:auto;transform:none!important}
   ::view-transition-group(app-theme),::view-transition-old(app-theme),::view-transition-new(app-theme){animation-duration:.01ms!important}
 }
+
+/* Preserve the original light palette while taking the edge off near-white surfaces. */
+html:not([data-theme="dark"]) .card{background:rgba(250,247,239,.94)}
+html:not([data-theme="dark"]) .mode-card:nth-child(1){background:linear-gradient(180deg,#f8f3e9 0%,#fff0c6 100%)}
+html:not([data-theme="dark"]) .mode-card:nth-child(2){background:linear-gradient(180deg,#faf7ef 0%,var(--mint2) 100%)}
+html:not([data-theme="dark"]) .mode-card:nth-child(3){background:linear-gradient(180deg,#faf7ef 0%,var(--lavender2) 100%)}
+html:not([data-theme="dark"]) .home-tool-button{background:linear-gradient(180deg,#faf7ef 0%,#f6f3ea 100%)}
+html:not([data-theme="dark"]) .settings-surface{background:linear-gradient(180deg,#faf7ef 0%,var(--sky2) 100%)}
+html:not([data-theme="dark"]) .setting-row,
+html:not([data-theme="dark"]) .pairing-panel,
+html:not([data-theme="dark"]) .settings-grid>.settings-block{background:rgba(250,247,239,.88)}
+html:not([data-theme="dark"]) .segmented-toggle,
+html:not([data-theme="dark"]) button.secondary,
+html:not([data-theme="dark"]) .settings-close,
+html:not([data-theme="dark"]) .settings-admin-link,
+html:not([data-theme="dark"]) .question-card,
+html:not([data-theme="dark"]) label.option:not(.correct):not(.incorrect),
+html:not([data-theme="dark"]) .review-item:not(.good):not(.bad),
+html:not([data-theme="dark"]) details,
+html:not([data-theme="dark"]) .bar,
+html:not([data-theme="dark"]) .graph-range button:not(.active),
+html:not([data-theme="dark"]) .stats-filter button:not(.active),
+html:not([data-theme="dark"]) .graph-empty{background:#faf7ef}
+html:not([data-theme="dark"]) .quiz-status{background:rgba(250,247,239,.96)}
+html:not([data-theme="dark"]) .quiz-actions{background:rgba(250,247,239,.95)}
+html:not([data-theme="dark"]) .feedback:not(.correct):not(.incorrect),
+html:not([data-theme="dark"]) .stats-control-panel{background:#f8f3e9}
+html:not([data-theme="dark"]) .stats-card{background:linear-gradient(180deg,rgba(250,247,239,.97) 0%,rgba(238,231,249,.96) 100%)}
+html:not([data-theme="dark"]) .graph-card{background:linear-gradient(180deg,#faf7ef 0%,#f8f1ff 100%)}
+html:not([data-theme="dark"]) .graph-axis{fill:#746f66}
+html:not([data-theme="dark"]) .home-tool-button:not(:active):hover{background:linear-gradient(180deg,#faf7ef 0%,var(--sky2) 100%)}
+html:not([data-theme="dark"]) label.option:not(:active):not(.correct):not(.incorrect):hover{background:#f8f3e9}
+
+/* Slightly larger regular-weight copy improves sustained reading comfort. */
+.mode-card p,
+label.option>span,
+.explanation,
+.feedback p,
+.review-item p{font-size:17px;line-height:1.5}
+.muted,.small,.note{font-size:15px;line-height:1.45}
+.quiz-heading-title p{font-size:clamp(16px,3.3vw,19px)}
+.setting-copy span,
+.settings-note,
+.settings-danger-zone span,
+.settings-admin-access span{font-size:14px;line-height:1.45}
+.pairing-panel p{font-size:15px;line-height:1.45}
 
 /* Midnight Lavender dark-mode surfaces. */
 html[data-theme="dark"]{
