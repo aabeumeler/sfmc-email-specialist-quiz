@@ -39,7 +39,7 @@ html{
   -webkit-text-size-adjust:100%;
   text-size-adjust:100%;
   background-color:#d9ecff;
-  transition:background-color 1s ease-in-out;
+  transition:background-color .5s ease-in-out;
   view-transition-name:none;
 }
 html[data-theme="dark"]{background-color:#17243f}
@@ -62,7 +62,7 @@ body{
   pointer-events:none;
   background-color:#d9ecff;
   overflow:hidden;
-  transition:background-color 1s ease-in-out;
+  transition:background-color .5s ease-in-out;
 }
 .cloud-bg::before,.cloud-bg::after{
   content:"";
@@ -71,7 +71,7 @@ body{
   background-repeat:no-repeat;
   background-position:center center;
   background-size:cover;
-  transition:opacity 1s ease-in-out;
+  transition:opacity .5s ease-in-out;
   will-change:opacity;
 }
 .cloud-bg::before{
@@ -349,6 +349,7 @@ html[data-theme="dark"] .celebration-mascot .mascot-dark{opacity:1}
 @media(max-width:720px){.grid{grid-template-columns:1fr}.app{width:min(100% - 18px,900px);margin-top:calc(10px + env(safe-area-inset-top))}.card,header{padding:16px}.stats-grid{grid-template-columns:repeat(2,1fr)}.actions button{flex:1 1 auto}.quiz-actions{margin-left:auto;margin-right:auto}.status-sub{font-size:11px;flex-wrap:wrap}.stats-filter button{font-size:12px;padding:10px 8px}.quiz-heading{grid-template-columns:1fr auto}.quiz-heading .home-btn{min-width:96px}.mode-length-actions{grid-template-columns:repeat(3,minmax(0,1fr))}}
 
 @media(min-width:760px){
+  #quizArea{padding-bottom:240px}
   .stats-filter-layout{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
   .stats-filter{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
   .stats-filter button{padding-left:6px;padding-right:6px}
