@@ -107,7 +107,9 @@ p{margin:0 0 10px}.muted,.small{color:var(--muted);font-size:14px}.hidden{displa
 .mode-card:nth-child(3){background:linear-gradient(180deg,#fffdf6 0%,var(--lavender2) 100%)}
 .mode-card.category-card{display:flex;flex-direction:column;gap:10px;cursor:default}
 .mode-card.category-card:active{transform:none;box-shadow:4px 5px 0 rgba(34,33,31,.12)}
-.mode-length-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:auto}
+.mode-length-control{display:grid;gap:7px;margin-top:auto}
+.mode-length-label{color:var(--muted);font-size:11px;font-weight:900;letter-spacing:.04em;text-align:center;text-transform:uppercase}
+.mode-length-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
 .mode-length-actions button{width:100%;min-height:50px;padding:10px 8px}
 .mode-card:active{transform:translate(2px,2px);box-shadow:2px 3px 0 rgba(34,33,31,.16)}
 button{
@@ -301,6 +303,8 @@ label.option:active{background:#fff0c6;transform:scale(.997)}label.option.correc
 }
 @media(max-width:420px){.celebration-mascot{width:136px;right:6px;bottom:calc(-30px + env(safe-area-inset-bottom))}}
 
+@media(min-width:1200px){.celebration-mascot{right:max(8px,env(safe-area-inset-right),calc((100vw - 1080px)/2 - 120px))}}
+
 @media(max-width:720px){.grid{grid-template-columns:1fr}.app{width:min(100% - 18px,900px);margin-top:calc(10px + env(safe-area-inset-top))}.card,header{padding:16px}.stats-grid{grid-template-columns:repeat(2,1fr)}.actions button{flex:1 1 auto}.quiz-actions{margin-left:-8px;margin-right:-8px}.quiz-actions button{flex:1 1 0}.status-sub{font-size:11px;flex-wrap:wrap}.stats-filter button{font-size:12px;padding:10px 8px}.quiz-heading{grid-template-columns:1fr auto}.quiz-heading .home-btn{min-width:96px}.mode-length-actions{grid-template-columns:repeat(3,minmax(0,1fr))}}
 
 @media(min-width:760px){
@@ -309,6 +313,7 @@ label.option:active{background:#fff0c6;transform:scale(.997)}label.option.correc
   .stats-filter button{padding-left:6px;padding-right:6px}
   .answer-options{grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
   .answer-options .option-wide{grid-column:1/-1}
+  .graph-line{stroke-width:2.5}
 }
 
 @media(min-width:980px){
