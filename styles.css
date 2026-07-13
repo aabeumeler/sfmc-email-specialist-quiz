@@ -108,7 +108,7 @@ p{margin:0 0 10px}.muted,.small{color:var(--muted);font-size:14px}.hidden{displa
 .mode-card.category-card{display:flex;flex-direction:column;gap:10px;cursor:default}
 .mode-card.category-card:active{transform:none;box-shadow:4px 5px 0 rgba(34,33,31,.12)}
 .mode-length-control{display:grid;gap:7px;margin-top:auto}
-.mode-length-label{color:var(--muted);font-size:11px;font-weight:900;letter-spacing:.04em;text-align:center;text-transform:uppercase}
+.mode-length-label{color:var(--muted);font-size:12px;font-weight:900;letter-spacing:.04em;padding-left:2px;text-align:left;text-transform:uppercase}
 .mode-length-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
 .mode-length-actions button{width:100%;min-height:50px;padding:10px 8px}
 .mode-card:active{transform:translate(2px,2px);box-shadow:2px 3px 0 rgba(34,33,31,.16)}
@@ -220,7 +220,7 @@ label.option:active{background:#fff0c6;transform:scale(.997)}label.option.correc
 .stats-card{border:2px solid var(--border);border-radius:22px;background:linear-gradient(180deg,rgba(255,253,246,.97) 0%,rgba(238,231,249,.96) 100%);padding:14px;margin:10px 0 14px;box-shadow:4px 5px 0 rgba(34,33,31,.10)}
 .stats-filter-layout{display:grid;grid-template-columns:1fr;gap:10px;margin:10px 0 12px}.stats-filter-section{min-width:0;border:2px solid var(--soft-border);border-radius:18px;padding:12px;background:rgba(255,253,246,.84);box-shadow:2px 3px 0 rgba(34,33,31,.08)}.stats-filter-section:nth-child(2){background:rgba(238,231,249,.78)}.stats-filter-section .stats-view-title{margin:0 0 8px}.stats-filter{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}.stats-filter button{width:100%;padding:10px 12px;border-radius:999px;background:#fffdf6;color:var(--text);border:2px solid var(--soft-border);box-shadow:none;font-size:13px}.stats-filter button.active{background:var(--primary);color:var(--ink);border-color:var(--border);box-shadow:2px 3px 0 rgba(34,33,31,.14)}
 .stats-view-title{font-size:13px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.03em;margin:2px 0 4px}.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stats-cell{background:#fffdf6;border:1.5px solid var(--soft-border);border-radius:16px;padding:10px;text-align:center}.stats-cell:nth-child(1){background:var(--mint2)}.stats-cell:nth-child(2){background:#fff0c6}.stats-cell:nth-child(3){background:var(--lavender2)}.stats-cell:nth-child(4){background:var(--coral2)}.stats-cell:nth-child(5){background:var(--sky2)}.stats-cell:nth-child(6){background:var(--mint2)}.stats-cell:nth-child(7){background:#fff0c6}.stats-cell:nth-child(8){background:var(--lavender2)}.stats-cell b{display:block;font-size:18px;color:var(--ink)}.stats-cell span{color:var(--muted);font-size:11px;font-weight:800;text-transform:uppercase}.stats-scope-note{margin:8px 2px 0;color:var(--muted);font-size:11px;line-height:1.35}.history-list{margin:10px 0 0;padding-left:18px;color:var(--muted);font-size:13px}.empty-history{margin-top:10px}
-.quiz-actions{position:sticky;bottom:calc(8px + env(safe-area-inset-bottom));z-index:40;background:rgba(255,253,246,.97);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:2px solid var(--border);border-radius:20px;box-shadow:4px -5px 0 rgba(34,33,31,.12);padding:10px;margin:16px -2px 0;justify-content:flex-end}.quiz-actions button{min-height:48px}.stats-actions{margin-top:0;width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stats-actions button{width:100%;min-width:0}
+.quiz-actions{position:sticky;bottom:calc(8px + env(safe-area-inset-bottom));z-index:40;display:grid;gap:10px;background:rgba(255,253,246,.95);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:2px solid var(--border);border-radius:20px;box-shadow:0 -8px 22px rgba(34,33,31,.10),3px 4px 0 rgba(34,33,31,.12);padding:8px;margin:18px auto 0}.quiz-actions.single-action{width:min(100%,460px);grid-template-columns:1fr}.quiz-actions.multi-action{width:min(100%,680px);grid-template-columns:repeat(2,minmax(0,1fr))}.quiz-actions button{width:100%;min-width:0;min-height:52px;padding:10px 16px}.stats-actions{margin-top:0;width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stats-actions button{width:100%;min-width:0}
 .stats-control-panel{border:2px dashed var(--soft-border);background:#fffaf0;border-radius:18px;padding:12px;margin:12px 0 0;display:grid;grid-template-columns:1fr;gap:10px}.stats-control-panel .actions{margin-top:0}.stats-control-panel button{min-height:42px}
 .graph-reveal{display:grid;grid-template-rows:0fr;opacity:0;transform:translateY(-8px);transition:grid-template-rows 360ms ease,opacity 260ms ease,transform 360ms ease;margin-top:0}.graph-reveal.open{grid-template-rows:1fr;opacity:1;transform:translateY(0);margin-top:12px}.graph-reveal-inner{min-height:0;overflow:hidden}.graph-card{border:2px solid var(--border);border-radius:22px;background:linear-gradient(180deg,#fffdf6 0%,#f8f1ff 100%);padding:12px;box-shadow:4px 5px 0 rgba(34,33,31,.10)}.graph-range{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.graph-range button{flex:1 1 auto;padding:8px 9px;border-radius:999px;background:#fffdf6;color:var(--text);border:2px solid var(--soft-border);box-shadow:none;font-size:12px}.graph-range button.active{background:var(--lavender);color:var(--ink);border-color:var(--border);box-shadow:2px 3px 0 rgba(34,33,31,.14)}.score-graph{width:100%;height:auto;display:block;overflow:visible}.graph-axis{font-size:11px;fill:#746f66}.graph-grid{stroke:#8d877d;stroke-width:1;opacity:.48}.graph-band-low{fill:var(--coral2);opacity:.42}.graph-band-mid{fill:#fff0c6;opacity:.58}.graph-band-high{fill:var(--mint2);opacity:.48}.graph-line{fill:none;stroke:#9a958d;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 1px rgba(255,253,246,.85))}.graph-point{fill:#68645e;stroke:#fffdf6;stroke-width:3}.graph-note{font-size:12px;color:var(--muted);margin-top:8px}.graph-empty{border:2px dashed var(--soft-border);border-radius:16px;padding:12px;color:var(--muted);font-size:13px;background:#fffdf6}
 
@@ -305,14 +305,13 @@ label.option:active{background:#fff0c6;transform:scale(.997)}label.option.correc
 
 @media(min-width:1200px){.celebration-mascot{right:max(8px,env(safe-area-inset-right),calc((100vw - 1080px)/2 - 120px))}}
 
-@media(max-width:720px){.grid{grid-template-columns:1fr}.app{width:min(100% - 18px,900px);margin-top:calc(10px + env(safe-area-inset-top))}.card,header{padding:16px}.stats-grid{grid-template-columns:repeat(2,1fr)}.actions button{flex:1 1 auto}.quiz-actions{margin-left:-8px;margin-right:-8px}.quiz-actions button{flex:1 1 0}.status-sub{font-size:11px;flex-wrap:wrap}.stats-filter button{font-size:12px;padding:10px 8px}.quiz-heading{grid-template-columns:1fr auto}.quiz-heading .home-btn{min-width:96px}.mode-length-actions{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:720px){.grid{grid-template-columns:1fr}.app{width:min(100% - 18px,900px);margin-top:calc(10px + env(safe-area-inset-top))}.card,header{padding:16px}.stats-grid{grid-template-columns:repeat(2,1fr)}.actions button{flex:1 1 auto}.quiz-actions{margin-left:auto;margin-right:auto}.status-sub{font-size:11px;flex-wrap:wrap}.stats-filter button{font-size:12px;padding:10px 8px}.quiz-heading{grid-template-columns:1fr auto}.quiz-heading .home-btn{min-width:96px}.mode-length-actions{grid-template-columns:repeat(3,minmax(0,1fr))}}
 
 @media(min-width:760px){
   .stats-filter-layout{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
   .stats-filter{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
   .stats-filter button{padding-left:6px;padding-right:6px}
   .answer-options{grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
-  .answer-options .option-wide{grid-column:1/-1}
   .graph-line{stroke-width:2.5}
 }
 
@@ -339,7 +338,7 @@ label.option:active{background:#fff0c6;transform:scale(.997)}label.option.correc
 }
 
 @media(max-height:520px) and (orientation:landscape){
-  .quiz-status,.quiz-actions{position:static}
+  .quiz-status{position:static}
 }
 
 @supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){
