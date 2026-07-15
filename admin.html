@@ -4,9 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="robots" content="noindex, nofollow" />
-  <meta id="themeColor" name="theme-color" content="#17243f" />
+  <meta id="themeColor" name="theme-color" content="#d9ecff" />
   <title>SFMC Quiz Admin Analytics</title>
-  <script>document.documentElement.dataset.theme="dark";</script>
+  <script>
+    (() => {
+      const key = "sfmcThemePreferenceV1";
+      let preference = "auto";
+      try {
+        const saved = localStorage.getItem(key);
+        if (["auto", "light", "dark"].includes(saved)) preference = saved;
+      } catch (error) {}
+      const hour = new Date().getHours();
+      const theme = preference === "auto" ? (hour >= 7 && hour < 19 ? "light" : "dark") : preference;
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.themePreference = preference;
+      document.getElementById("themeColor")?.setAttribute("content", theme === "dark" ? "#17243f" : "#d9ecff");
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="admin.css" />
   <script src="sync-config.js"></script>
@@ -71,13 +85,13 @@
       </section>
 
       <section class="admin-panel">
-        <h2>Questions Needing Attention</h2>
-        <div id="questionInsights" class="admin-table-wrap"></div>
+        <h2>Anonymous Users</h2>
+        <div id="adminUsersTable" class="admin-table-wrap"></div>
       </section>
 
       <section class="admin-panel">
-        <h2>Anonymous Users</h2>
-        <div id="adminUsersTable" class="admin-table-wrap"></div>
+        <h2>Questions Needing Attention</h2>
+        <div id="questionInsights" class="admin-table-wrap"></div>
       </section>
     </section>
   </main>

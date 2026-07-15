@@ -1,5 +1,5 @@
 const CONFIG = window.SFMC_SYNC_CONFIG || {};
-const SUPABASE_MODULE = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.2/+esm";
+const SUPABASE_MODULE = CONFIG.supabaseModule || "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.2/+esm";
 const ADMIN_AUTH_KEY = "sfmc-admin-auth-v1";
 
 const ui = {
@@ -34,6 +34,7 @@ const configured = Boolean(/^https:\/\//i.test(String(CONFIG.supabaseUrl || ""))
 let supabase = null;
 let profiles = [];
 const view = { profileId: "all", category: "all", length: "all" };
+const rowLimits = { questions: 5, users: 5 };
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
@@ -50,6 +51,24 @@ function formatDuration(seconds) {
 function formatDate(value) {
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date.toLocaleString() : "—";
+}
+
+function shortPreview(value, limit = 88) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
+}
+
+function tableControls(kind, total) {
+  if (total <= 5) return "";
+  const expanded = rowLimits[kind] === 20;
+  return `<div class="admin-table-controls"><span>Showing ${Math.min(total, expanded ? 20 : 5)} of ${total}</span><button type="button" class="secondary" data-table-limit="${kind}">${expanded ? "Show 5" : "Show 20"}</button></div>`;
+}
+
+function bindTableLimit(target, kind, render) {
+  target.querySelector(`[data-table-limit="${kind}"]`)?.addEventListener("click", () => {
+    rowLimits[kind] = rowLimits[kind] === 20 ? 5 : 20;
+    render();
+  });
 }
 
 function categoryOf(session) {
@@ -187,7 +206,7 @@ function renderStats(scope) {
 function renderTrend(sessions) {
   const points = sessions.slice(-200);
   if (!points.length) {
-    ui.trend.innerHTML = `<div class="region-empty" style="margin-top:16px">No score trend is available for this view.</div>`;
+    ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="region-empty">No score trend is available for this view.</div></div>`;
     return;
   }
   const width = 720, height = 240, left = 42, right = 16, top = 16, bottom = 34;
@@ -200,7 +219,8 @@ function renderTrend(sessions) {
   });
   const path = coords.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
   const circles = coords.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="graph-point"><title>${point.pct}%</title></circle>`).join("");
-  ui.trend.innerHTML = `<svg class="admin-score-graph score-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="Filtered score trend"><rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" rx="8"></rect>${[0,50,100].map(value => { const y=top+(1-value/100)*plotHeight; return `<line class="graph-grid" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"></line><text class="graph-axis" x="6" y="${y+4}">${value}%</text>`; }).join("")}<path class="graph-line" d="${path}"></path>${circles}</svg>`;
+  const grid = [0,50,100].map(value => { const y=top+(1-value/100)*plotHeight; return `<line class="graph-grid" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"></line><text class="graph-axis" x="6" y="${y+4}">${value}%</text>`; }).join("");
+  ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><svg class="admin-score-graph score-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="Filtered score trend"><rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="#fffdf6"></rect><rect class="graph-band-high" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-mid" x="${left}" y="${top+plotHeight*.25}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-low" x="${left}" y="${top+plotHeight*.5}" width="${plotWidth}" height="${plotHeight*.5}"></rect>${grid}<line class="graph-grid" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"></line><line class="graph-grid" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"></line><path class="graph-line" d="${path}"></path>${circles}</svg></div>`;
 }
 
 function renderHistory(sessions) {
@@ -258,7 +278,9 @@ function mergeQuestionBuckets(scope) {
 
 function renderQuestionInsights(scope) {
   const rows = Object.values(mergeQuestionBuckets(scope)).filter(item => item.timesSeen > 0).map(item => ({ ...item, accuracy: item.timesCorrect / item.timesSeen * 100 })).sort((a, b) => a.accuracy - b.accuracy || b.timesSeen - a.timesSeen).slice(0, 20);
-  ui.questions.innerHTML = rows.length ? `<table class="admin-table"><thead><tr><th>Question</th><th>Seen</th><th>Wrong</th><th>Accuracy</th></tr></thead><tbody>${rows.map(item => `<tr><td><strong>${escapeHtml(item.test || "Question")} ${escapeHtml(item.number || "")}</strong><br>${escapeHtml(item.question || "")}</td><td>${item.timesSeen}</td><td>${item.timesWrong}</td><td>${Math.round(item.accuracy)}%</td></tr>`).join("")}</tbody></table>` : `<div class="region-empty">No question-performance data is available for this view.</div>`;
+  const visibleRows = rows.slice(0, rowLimits.questions);
+  ui.questions.innerHTML = rows.length ? `${tableControls("questions", rows.length)}<div class="admin-table-scroll ${rowLimits.questions === 20 ? "expanded" : ""}"><table class="admin-table"><thead><tr><th>Question</th><th>Seen</th><th>Wrong</th><th>Accuracy</th></tr></thead><tbody>${visibleRows.map(item => `<tr><td><strong>${escapeHtml(item.test || "Question")} ${escapeHtml(item.number || "")}</strong><br><span class="question-preview" title="${escapeHtml(item.question || "")}">${escapeHtml(shortPreview(item.question))}</span></td><td>${item.timesSeen}</td><td>${item.timesWrong}</td><td>${Math.round(item.accuracy)}%</td></tr>`).join("")}</tbody></table></div>` : `<div class="region-empty">No question-performance data is available for this view.</div>`;
+  bindTableLimit(ui.questions, "questions", () => renderQuestionInsights(scope));
 }
 
 function renderUsersTable() {
@@ -269,13 +291,15 @@ function renderUsersTable() {
     const location = latestDeviceLocation(profile);
     return `<tr><td><strong>${escapeHtml(profile.label)}</strong></td><td>${sessions.length}</td><td>${devices.length}</td><td>${sessions.length ? `${Math.round(average(sessions.map(session=>session.scorePercent)))}%` : "—"}</td><td>${escapeHtml(locationLabel(location))}</td><td>${escapeHtml(latest ? formatDate(latest.date) : "—")}</td><td><button type="button" data-view-profile="${escapeHtml(profile.profileId)}">View</button></td></tr>`;
   });
-  ui.users.innerHTML = rows.length ? `<table class="admin-table"><thead><tr><th>Anonymous User</th><th>Attempts</th><th>Devices</th><th>Avg Score</th><th>Latest Region</th><th>Last Quiz</th><th></th></tr></thead><tbody>${rows.join("")}</tbody></table>` : `<div class="region-empty">No users have opted in yet.</div>`;
+  const visibleRows = rows.slice(0, rowLimits.users);
+  ui.users.innerHTML = rows.length ? `${tableControls("users", rows.length)}<div class="admin-table-scroll ${rowLimits.users === 20 ? "expanded" : ""}"><table class="admin-table"><thead><tr><th>Anonymous User</th><th>Attempts</th><th>Devices</th><th>Avg Score</th><th>Latest Region</th><th>Last Quiz</th><th></th></tr></thead><tbody>${visibleRows.join("")}</tbody></table></div>` : `<div class="region-empty">No users have opted in yet.</div>`;
   ui.users.querySelectorAll("[data-view-profile]").forEach(button => button.addEventListener("click", () => {
     view.profileId = button.dataset.viewProfile;
     ui.userFilter.value = view.profileId;
     renderDashboard();
     scrollTo({ top: 0, behavior: "smooth" });
   }));
+  bindTableLimit(ui.users, "users", renderUsersTable);
 }
 
 function renderFilters() {
