@@ -12,7 +12,7 @@ The quiz code now contains the complete user/device model, QR pairing flow, cons
 - Analytics is off by default.
 - When analytics is enabled, the complete merged statistics record becomes readable to the private admin dashboard.
 - Approximate state or first-level region is collected only after opt-in. Raw IP addresses and exact location are not stored by the quiz.
-- Turning analytics off deletes the readable statistics and stored region while allowing encrypted private sync to continue.
+- Turning analytics off stops future sharing while retaining previously shared statistics and region data by default. The user can explicitly select and confirm deletion of that historical data. Encrypted private sync can continue.
 
 ## 1. Create the Supabase project
 
@@ -60,5 +60,6 @@ The quiz calls this endpoint only while anonymous analytics is enabled.
 3. Take a quiz while one device is offline, reconnect, and use **Sync Now**.
 4. Confirm one anonymous user and two devices appear after opting in.
 5. Confirm both devices' activity appears in the individual user view and the aggregate view.
-6. Turn analytics off and confirm the user disappears from the dashboard while private sync continues.
-7. Confirm an unapproved email/password account cannot open the dashboard.
+6. Turn analytics off without selecting historical deletion and confirm no future updates are shared while the existing dashboard record remains.
+7. Turn analytics back on, then turn it off with **Also delete my anonymous historical data** selected; confirm deletion and verify the user disappears from the dashboard.
+8. Confirm an unapproved email/password account cannot open the dashboard.

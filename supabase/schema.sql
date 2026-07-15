@@ -334,11 +334,21 @@ begin
   update public.quiz_profiles
   set analytics_consent = coalesce(p_enabled, false), updated_at = now()
   where id = p_profile_id;
-  if not coalesce(p_enabled, false) then
-    delete from public.quiz_analytics_profiles where profile_id = p_profile_id;
-    delete from public.quiz_device_locations where profile_id = p_profile_id;
-  end if;
   return coalesce(p_enabled, false);
+end;
+$$;
+
+create or replace function public.delete_quiz_analytics_history(p_profile_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not private.is_quiz_member(p_profile_id) then raise exception 'Access denied'; end if;
+  delete from public.quiz_analytics_profiles where profile_id = p_profile_id;
+  delete from public.quiz_device_locations where profile_id = p_profile_id;
+  return true;
 end;
 $$;
 
@@ -459,8 +469,7 @@ begin
     ) order by a.updated_at desc
   ), '[]'::jsonb) into v_result
   from public.quiz_profiles p
-  join public.quiz_analytics_profiles a on a.profile_id = p.id
-  where p.analytics_consent;
+  join public.quiz_analytics_profiles a on a.profile_id = p.id;
   return v_result;
 end;
 $$;
@@ -475,6 +484,7 @@ revoke all on function public.upsert_quiz_profile_settings(uuid, text) from publ
 revoke all on function public.get_quiz_profile_settings(uuid) from public;
 revoke all on function public.get_quiz_analytics_consent(uuid) from public;
 revoke all on function public.set_quiz_analytics_consent(uuid, boolean) from public;
+revoke all on function public.delete_quiz_analytics_history(uuid) from public;
 revoke all on function public.upsert_quiz_analytics(uuid, jsonb) from public;
 revoke all on function public.upsert_quiz_device_location(uuid, text, text, text, text) from public;
 revoke all on function public.reset_quiz_profile_stats(uuid) from public;
@@ -490,6 +500,7 @@ grant execute on function public.upsert_quiz_profile_settings(uuid, text) to aut
 grant execute on function public.get_quiz_profile_settings(uuid) to authenticated;
 grant execute on function public.get_quiz_analytics_consent(uuid) to authenticated;
 grant execute on function public.set_quiz_analytics_consent(uuid, boolean) to authenticated;
+grant execute on function public.delete_quiz_analytics_history(uuid) to authenticated;
 grant execute on function public.upsert_quiz_analytics(uuid, jsonb) to authenticated;
 grant execute on function public.upsert_quiz_device_location(uuid, text, text, text, text) to authenticated;
 grant execute on function public.reset_quiz_profile_stats(uuid) to authenticated;

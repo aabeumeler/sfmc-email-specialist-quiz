@@ -32,7 +32,8 @@
     </div>
     <div class="settings-section settings-block" id="analyticsSettings">
       <div class="setting-row"><div class="setting-copy"><strong>Share anonymous quiz analytics</strong><span>Off by default. When enabled, the entire saved quiz-statistics record is shared, along with an approximate state or region derived from the network address. No name, email, password, or raw IP address is stored. The information is used only for quiz-performance analysis and quiz improvements.</span></div><label class="switch-control"><input id="analyticsConsentToggle" type="checkbox" disabled /><span class="switch-track" aria-hidden="true"></span><span class="switch-label">Off</span></label></div>
-      <p class="settings-note">Turning this off stops future analytics sharing and deletes previously shared statistics and location from the admin dashboard. Private device sync can remain on.</p>
+      <p class="settings-note">Turning this off stops future analytics sharing. Previously shared statistics and location remain unless you select the deletion option below and confirm. Private device sync can remain on.</p>
+      <label class="analytics-history-option"><input id="deleteAnalyticsHistory" type="checkbox" disabled /><span>Also delete my anonymous historical data</span></label>
     </div>
     <div class="settings-danger-zone settings-block"><div><strong>Saved statistics</strong><span>Permanently remove saved scores, study time, streaks, and missed-question history. When sync is enabled, the reset also applies to paired devices.</span></div><button id="resetStatsBtn" type="button" class="danger">Reset Stats</button></div>
     </div>

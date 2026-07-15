@@ -1,7 +1,7 @@
 const CONFIG = window.SFMC_SYNC_CONFIG || {};
 const CLOUD_STATE_KEY = "sfmcCloudSyncState_v1";
 const PLAYER_AUTH_KEY = "sfmc-player-auth-v1";
-const SUPABASE_MODULE = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.2/+esm";
+const SUPABASE_MODULE = CONFIG.supabaseModule || "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.2/+esm";
 
 const elements = {
   setup: document.getElementById("syncSetupBtn"),
@@ -13,7 +13,8 @@ const elements = {
   copyPairing: document.getElementById("copyPairingLink"),
   hidePairing: document.getElementById("hidePairingBtn"),
   analytics: document.getElementById("analyticsConsentToggle"),
-  analyticsLabel: document.querySelector(".switch-label")
+  analyticsLabel: document.querySelector(".switch-label"),
+  deleteAnalyticsHistory: document.getElementById("deleteAnalyticsHistory")
 };
 
 let bridge = window.SFMC_QUIZ_BRIDGE;
@@ -120,8 +121,13 @@ function readableError(error, fallback) {
 function updateConsentControl(enabled) {
   if (!elements.analytics) return;
   elements.analytics.checked = Boolean(enabled);
-  elements.analytics.disabled = !configured || !cloudState || syncing;
+  elements.analytics.disabled = !configured || syncing;
   if (elements.analyticsLabel) elements.analyticsLabel.textContent = enabled ? "On" : "Off";
+  if (elements.deleteAnalyticsHistory) {
+    const canDeleteHistory = configured && Boolean(cloudState) && Boolean(enabled) && !syncing;
+    elements.deleteAnalyticsHistory.disabled = !canDeleteHistory;
+    if (!canDeleteHistory) elements.deleteAnalyticsHistory.checked = false;
+  }
 }
 
 function renderControls() {
@@ -438,30 +444,59 @@ elements.copyPairing?.addEventListener("click", async () => {
 });
 
 elements.analytics?.addEventListener("change", async () => {
-  if (!cloudState || syncing) return;
+  if (syncing) return;
   const enabled = elements.analytics.checked;
+  const previousEnabled = Boolean(cloudState?.analyticsConsent);
+  const requestedHistoryDeletion = !enabled && Boolean(elements.deleteAnalyticsHistory?.checked);
+  const deleteHistory = requestedHistoryDeletion && window.confirm(
+    "Turn off future analytics sharing and permanently delete all previously shared anonymous statistics and approximate location data? This cannot be undone."
+  );
+  if (requestedHistoryDeletion && !deleteHistory) elements.deleteAnalyticsHistory.checked = false;
+  let preferenceErrorMessage = "";
   syncing = true;
   renderControls();
-  setStatus(enabled ? "Enabling anonymous analytics…" : "Removing shared analytics…");
+  setStatus(enabled ? "Enabling anonymous analytics…" : "Turning off future analytics sharing…");
   try {
-    await ensureAnonymousSession();
+    if (!cloudState) {
+      if (!enabled) return;
+      await createProfile();
+    } else {
+      await ensureAnonymousSession();
+    }
     await rpc("set_quiz_analytics_consent", { p_profile_id: cloudState.profileId, p_enabled: enabled });
     cloudState.analyticsConsent = enabled;
     saveCloudState();
     if (enabled) {
-      await uploadOptedInAnalytics(bridge.getStats());
-      setStatus("Anonymous analytics is on. The complete saved statistics record and approximate region are shared.", "good");
+      try {
+        await uploadOptedInAnalytics(bridge.getStats());
+        setStatus("Anonymous analytics is on. The complete saved statistics record and approximate region are shared.", "good");
+      } catch (uploadError) {
+        console.error(uploadError);
+        setStatus("Anonymous analytics is on, but the current statistics could not be uploaded yet. Try Sync Now.", "error");
+      }
+    } else if (deleteHistory) {
+      try {
+        await rpc("delete_quiz_analytics_history", { p_profile_id: cloudState.profileId });
+        setStatus("Anonymous analytics is off. Future sharing is stopped, and previously shared anonymous data was deleted.", "good");
+      } catch (deleteError) {
+        console.error(deleteError);
+        setStatus("Anonymous analytics is off and future sharing is stopped, but historical data could not be deleted yet.", "error");
+      }
     } else {
-      setStatus("Anonymous analytics is off. Previously shared statistics and location were deleted.", "good");
+      setStatus("Anonymous analytics is off. Future sharing is stopped; previously shared anonymous data remains.", "good");
     }
   } catch (error) {
     console.error(error);
-    cloudState.analyticsConsent = !enabled;
-    elements.analytics.checked = !enabled;
-    setStatus(`Analytics preference could not be changed: ${error.message}`, "error");
+    if (cloudState) {
+      cloudState.analyticsConsent = previousEnabled;
+      saveCloudState();
+    }
+    elements.analytics.checked = previousEnabled;
+    preferenceErrorMessage = `Analytics preference could not be changed: ${error.message}`;
   } finally {
     syncing = false;
     renderControls();
+    if (preferenceErrorMessage) setStatus(preferenceErrorMessage, "error");
   }
 });
 
