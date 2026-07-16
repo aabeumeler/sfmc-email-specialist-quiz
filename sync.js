@@ -15,7 +15,11 @@ const elements = {
   analytics: document.getElementById("analyticsConsentToggle"),
   analyticsLabel: document.querySelector(".switch-label"),
   anonymousProfileId: document.getElementById("anonymousProfileId"),
-  deleteAnalyticsHistory: document.getElementById("deleteAnalyticsHistory")
+  deleteAnalyticsHistory: document.getElementById("deleteAnalyticsHistory"),
+  certification: document.getElementById("certificationToggle"),
+  analyticsPrompt: document.getElementById("analyticsOptInPrompt"),
+  acceptAnalyticsPrompt: document.getElementById("acceptAnalyticsOptIn"),
+  declineAnalyticsPrompt: document.getElementById("declineAnalyticsOptIn")
 };
 
 let bridge = window.SFMC_QUIZ_BRIDGE;
@@ -156,6 +160,10 @@ function renderControls() {
     elements.anonymousProfileId.setAttribute("aria-label", playerId ? `Anonymous user ID: ${playerId}` : "Anonymous user ID");
     elements.anonymousProfileId.classList.toggle("hidden", !profileId);
   }
+  if (elements.certification) {
+    elements.certification.checked = Boolean(bridge.getCertificationState?.().isCertified);
+    elements.certification.disabled = syncing;
+  }
   updateConsentControl(Boolean(cloudState && cloudState.analyticsConsent));
   if (!configured) {
     setStatus("Cloud sync is awaiting its one-time secure service setup.");
@@ -164,6 +172,17 @@ function renderControls() {
   } else if (!cloudState) {
     setStatus("Sync is off. Your information remains in this browser.");
   }
+}
+
+function setAnalyticsPromptOpen(open) {
+  if (!elements.analyticsPrompt) return;
+  elements.analyticsPrompt.classList.toggle("hidden", !open);
+  elements.analyticsPrompt.setAttribute("aria-hidden", open ? "false" : "true");
+  if (open) requestAnimationFrame(() => elements.acceptAnalyticsPrompt?.focus());
+}
+
+function showAnalyticsPromptIfNeeded() {
+  if (configured && !cloudState?.analyticsConsent) setAnalyticsPromptOpen(true);
 }
 
 async function getSupabase() {
@@ -196,6 +215,30 @@ async function rpc(name, args = {}) {
   const result = await client.rpc(name, args);
   if (result.error) throw result.error;
   return result.data;
+}
+
+function certificationFromStatus(status) {
+  return {
+    isCertified: Boolean(status?.is_certified),
+    updatedAt: status?.certification_updated_at || null
+  };
+}
+
+async function syncCertification(profileStatus) {
+  if (!bridge.getCertificationState || !bridge.setCertificationStateFromSync) return profileStatus;
+  const local = bridge.getCertificationState(), remote = certificationFromStatus(profileStatus);
+  const localTime = new Date(local.updatedAt || 0).getTime(), remoteTime = new Date(remote.updatedAt || 0).getTime();
+  if (local.updatedAt && (!remote.updatedAt || localTime > remoteTime)) {
+    const saved = await rpc("set_quiz_certification_status", {
+      p_profile_id: cloudState.profileId,
+      p_certified: Boolean(local.isCertified),
+      p_changed_at: local.updatedAt
+    });
+    bridge.setCertificationStateFromSync(certificationFromStatus(saved));
+    return saved;
+  }
+  bridge.setCertificationStateFromSync(remote);
+  return profileStatus;
 }
 
 async function createProfile() {
@@ -322,7 +365,9 @@ async function syncNow({ quiet = false } = {}) {
   if (!quiet) setStatus("Syncing securely…");
   try {
     await ensureAnonymousSession();
-    const profileStatus = await rpc("get_quiz_profile_status", { p_profile_id: cloudState.profileId });
+    let profileStatus = await rpc("get_quiz_profile_status", { p_profile_id: cloudState.profileId });
+    try { profileStatus = await syncCertification(profileStatus); }
+    catch (certificationError) { console.warn("Certification preference could not be synced yet.", certificationError); }
     const serverGeneration = Number(profileStatus?.stats_generation) || 0;
     if (serverGeneration > (Number(cloudState.statsGeneration) || 0)) {
       bridge.clearStatsFromSync();
@@ -460,6 +505,16 @@ elements.copyPairing?.addEventListener("click", async () => {
   }
 });
 
+elements.acceptAnalyticsPrompt?.addEventListener("click", () => {
+  setAnalyticsPromptOpen(false);
+  if (!elements.analytics) return;
+  elements.analytics.checked = true;
+  elements.analytics.dispatchEvent(new Event("change", { bubbles: true }));
+});
+elements.declineAnalyticsPrompt?.addEventListener("click", () => setAnalyticsPromptOpen(false));
+elements.analyticsPrompt?.addEventListener("click", event => { if (event.target === elements.analyticsPrompt) setAnalyticsPromptOpen(false); });
+document.addEventListener("keydown", event => { if (event.key === "Escape" && !elements.analyticsPrompt?.classList.contains("hidden")) setAnalyticsPromptOpen(false); });
+
 elements.analytics?.addEventListener("change", async () => {
   if (syncing) return;
   const enabled = elements.analytics.checked;
@@ -479,6 +534,12 @@ elements.analytics?.addEventListener("change", async () => {
       await createProfile();
     } else {
       await ensureAnonymousSession();
+    }
+    try {
+      const profileStatus = await rpc("get_quiz_profile_status", { p_profile_id: cloudState.profileId });
+      await syncCertification(profileStatus);
+    } catch (certificationError) {
+      console.warn("Certification preference could not be synced before the analytics preference changed.", certificationError);
     }
     await rpc("set_quiz_analytics_consent", { p_profile_id: cloudState.profileId, p_enabled: enabled });
     cloudState.analyticsConsent = enabled;
@@ -524,6 +585,10 @@ window.addEventListener("sfmc:appearance-changed", event => {
   saveCloudState();
   scheduleSync();
 });
+window.addEventListener("sfmc:certification-changed", () => {
+  if (!cloudState || !configured) return;
+  scheduleSync(150);
+});
 window.addEventListener("sfmc:stats-reset", async () => {
   if (!cloudState || !configured) return;
   try {
@@ -542,5 +607,6 @@ document.addEventListener("visibilitychange", () => {
 });
 
 renderControls();
-if (cloudState && configured) syncNow({ quiet: true });
+if (cloudState && configured) await syncNow({ quiet: true });
+showAnalyticsPromptIfNeeded();
 setInterval(() => { if (cloudState && !document.hidden) syncNow({ quiet: true }); }, 2 * 60 * 1000);

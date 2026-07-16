@@ -49,7 +49,7 @@ const view = {
   category: ["all", "test", "quiz", "study"].includes(savedUiState.category) ? savedUiState.category : "all",
   length: ["all", "10", "20", "50"].includes(String(savedUiState.length)) ? String(savedUiState.length) : "all",
   rangeDays: [0, 1, 7, 30, 90, 180, 365].includes(Number(savedUiState.rangeDays)) ? Number(savedUiState.rangeDays) : 7,
-  metric: ["averageScore", "currentPlayers", "averageImprovement", "scoreHistory"].includes(savedUiState.metric) ? savedUiState.metric : "averageScore"
+  metric: ["averageScore", "currentPlayers", "averageImprovement", "scoreHistory", "certifiedUsers"].includes(savedUiState.metric) ? savedUiState.metric : "averageScore"
 };
 const listStates = savedUiState.lists && typeof savedUiState.lists === "object" ? savedUiState.lists : {};
 
@@ -259,7 +259,8 @@ const GRAPH_METRICS = {
   averageScore: { label: "Average User Score", description: "Average score per user in each shared UTC time bucket", chart: "line", unit: "%" },
   currentPlayers: { label: "Current Players", description: "Distinct active users in each shared UTC time bucket", chart: "bar", unit: "" },
   averageImprovement: { label: "Average Score Improvement", description: "Score change from each user's first completed score in the selected timeframe", chart: "line", unit: " pts" },
-  scoreHistory: { label: "Score History", description: "Every completed score in chronological order", chart: "line", unit: "%" }
+  scoreHistory: { label: "Score History", description: "Every completed score in chronological order", chart: "line", unit: "%" },
+  certifiedUsers: { label: "Certified Users", description: "Users currently marked certified at the end of each shared UTC time bucket", chart: "line", unit: "" }
 };
 
 function graphBucketConfig(days, rows = []) {
@@ -291,7 +292,45 @@ function nextUtcBucket(time, config) {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1);
 }
 
-function buildGraphMetric(sessions) {
+function buildCertificationMetric(scope) {
+  const metric = GRAPH_METRICS.certifiedUsers;
+  const eligibleProfiles = scope.filter(profile => view.category === "all" && view.length === "all" ? true : filteredSessions(profile.stats).length > 0);
+  const seen = new Set();
+  const events = eligibleProfiles.flatMap(profile => (profile.certificationEvents || []).map(event => ({
+    profileId: profile.profileId,
+    time: new Date(event.changedAt).getTime(),
+    isCertified: Boolean(event.isCertified)
+  }))).filter(event => {
+    const key = `${event.profileId}|${event.time}|${event.isCertified}`;
+    if (!Number.isFinite(event.time) || seen.has(key)) return false;
+    seen.add(key);
+    return event.time <= Date.now();
+  }).sort((a, b) => a.time - b.time);
+  const now = Date.now(), config = graphBucketConfig(view.rangeDays, events);
+  const createdTimes = eligibleProfiles.map(profile => new Date(profile.createdAt).getTime()).filter(Number.isFinite);
+  const earliest = events[0]?.time ?? Math.min(now, ...createdTimes);
+  const first = utcBucketStart(Number(view.rangeDays) > 0 ? now - Number(view.rangeDays) * 86400000 : earliest, config);
+  const last = utcBucketStart(now, config), states = new Map();
+  let eventIndex = 0;
+  while (eventIndex < events.length && events[eventIndex].time < first) {
+    states.set(events[eventIndex].profileId, events[eventIndex].isCertified);
+    eventIndex += 1;
+  }
+  const rows = [];
+  for (let time = first, guard = 0; time <= last && guard < 1000; time = nextUtcBucket(time, config), guard++) {
+    const bucketEnd = nextUtcBucket(time, config);
+    while (eventIndex < events.length && events[eventIndex].time < bucketEnd) {
+      states.set(events[eventIndex].profileId, events[eventIndex].isCertified);
+      eventIndex += 1;
+    }
+    const count = eligibleProfiles.reduce((sum, profile) => sum + (states.get(profile.profileId) === true ? 1 : 0), 0);
+    rows.push({ time, value: count, detail: `${count} certified user${count === 1 ? "" : "s"}` });
+  }
+  return { metric, rows, config, history: false, overall: null };
+}
+
+function buildGraphMetric(sessions, scope) {
+  if (view.metric === "certifiedUsers") return buildCertificationMetric(scope);
   const completed = completedScoreHistory(sessions, view.rangeDays), metric = GRAPH_METRICS[view.metric] || GRAPH_METRICS.averageScore;
   if (!completed.length) return { metric, rows: [], config: graphBucketConfig(view.rangeDays), history: view.metric === "scoreHistory", overall: null };
   if (view.metric === "scoreHistory") return { metric, rows: completed.map(row => ({ ...row, value: row.pct, detail: `${Math.round(row.pct)}%` })), config: graphBucketConfig(view.rangeDays, completed), history: true, overall: null };
@@ -327,7 +366,7 @@ function buildGraphMetric(sessions) {
 function graphAxis(rows, metricKey) {
   const values = rows.map(row => Number(row.value)).filter(Number.isFinite);
   if (metricKey === "averageScore" || metricKey === "scoreHistory") return { min: 0, max: 100, ticks: [0,25,50,75,100], suffix: "%" };
-  if (metricKey === "currentPlayers") {
+  if (metricKey === "currentPlayers" || metricKey === "certifiedUsers") {
     const max = Math.max(1, ...values), step = Math.max(1, Math.ceil(max / 4)), ceiling = Math.max(step, Math.ceil(max / step) * step);
     return { min: 0, max: ceiling, ticks: [...new Set([0, step, step * 2, step * 3, ceiling].filter(value => value <= ceiling))], suffix: "" };
   }
@@ -420,21 +459,21 @@ function renderStats(scope) {
   ui.statsNote.textContent = single
     ? "This view matches the anonymous user's in-app statistics. Filters apply to study time and score history; streaks span all modes."
     : "Aggregated view: current streaks are averages across users; best streaks are the highest achieved. Other totals combine all selected users.";
-  renderTrend(sessions);
+  renderTrend(sessions, scope);
   renderHistory(sessions);
 }
 
-function renderTrend(sessions) {
-  const dataset = buildGraphMetric(sessions), { rows, metric, config } = dataset;
+function renderTrend(sessions, scope) {
+  const dataset = buildGraphMetric(sessions, scope), { rows, metric, config } = dataset;
   if (!rows.length) {
-    ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="admin-graph-heading"><strong>${escapeHtml(metric.label)}</strong><span>${escapeHtml(metric.description)}</span></div><div class="region-empty">No completed scores are available for this metric and timeframe.</div></div>`;
+    ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="admin-graph-heading"><strong>${escapeHtml(metric.label)}</strong><span>${escapeHtml(metric.description)}</span></div><div class="region-empty">No data is available for this metric and timeframe.</div></div>`;
     return;
   }
   const width = 720, height = 260, left = 42, right = 16, top = 16, bottom = 46;
   const plotWidth = width - left - right, plotHeight = height - top - bottom, axis = graphAxis(rows, view.metric), range = Math.max(.001, axis.max - axis.min);
   const coords = rows.map((row, index) => ({ ...row, x: metric.chart === "bar" ? left + (index + .5) * plotWidth / rows.length : rows.length === 1 ? left + plotWidth / 2 : left + index * plotWidth / (rows.length - 1), y: top + (axis.max - row.value) / range * plotHeight }));
   const path = metric.chart === "line" ? smoothGraphPath(coords) : "";
-  const marks = metric.chart === "bar" ? coords.map((point, index) => { const slot = plotWidth / Math.max(1, coords.length), barWidth = Math.max(2, Math.min(34, slot * .72)), baseline = top + (axis.max / range) * plotHeight, y = Math.min(point.y, baseline), barHeight = Math.max(1, Math.abs(baseline - point.y)); return `<rect class="graph-bar" x="${(point.x-barWidth/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}"><title>${escapeHtml(`${point.detail} · ${formatDate(point.time)}`)}</title></rect>`; }).join("") : coords.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="graph-point"><title>${escapeHtml(`${Number(point.value).toFixed(view.metric === "currentPlayers" ? 0 : 1)}${metric.unit} · ${point.session?.__profileLabel || point.detail} · ${formatDate(point.session?.date || point.time)}`)}</title></circle>`).join("");
+  const marks = metric.chart === "bar" ? coords.map((point, index) => { const slot = plotWidth / Math.max(1, coords.length), barWidth = Math.max(2, Math.min(34, slot * .72)), baseline = top + (axis.max / range) * plotHeight, y = Math.min(point.y, baseline), barHeight = Math.max(1, Math.abs(baseline - point.y)); return `<rect class="graph-bar" x="${(point.x-barWidth/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}"><title>${escapeHtml(`${point.detail} · ${formatDate(point.time)}`)}</title></rect>`; }).join("") : coords.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="graph-point"><title>${escapeHtml(`${Number(point.value).toFixed(view.metric === "currentPlayers" || view.metric === "certifiedUsers" ? 0 : 1)}${metric.unit} · ${point.session?.__profileLabel || point.detail} · ${formatDate(point.session?.date || point.time)}`)}</title></circle>`).join("");
   const grid = axis.ticks.map(value => { const y=top+(axis.max-value)/range*plotHeight; return `<line class="graph-grid" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"></line><text class="graph-axis" x="6" y="${y+4}">${Number.isInteger(value)?value:value.toFixed(1)}${axis.suffix}</text>`; }).join("");
   const xTicks = scoreHistoryTicks(rows, view.rangeDays, left, plotWidth).map(tick => `<text class="graph-axis graph-x-axis" text-anchor="${tick.anchor}" x="${(metric.chart === "bar" ? coords[tick.rowIndex].x : tick.x).toFixed(1)}" y="${height-12}">${escapeHtml(tick.label)}</text>`).join("");
   const bands = view.metric === "averageScore" || view.metric === "scoreHistory" ? `<rect class="graph-band-high" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-mid" x="${left}" y="${top+plotHeight*.25}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-low" x="${left}" y="${top+plotHeight*.5}" width="${plotWidth}" height="${plotHeight*.5}"></rect>` : "";
@@ -458,12 +497,14 @@ function renderInsights(scope) {
   const completed = sessions.filter(session => Number(session.answered) > 0 && Number(session.answered) === Number(session.totalQuestions)).length;
   const repeatUsers = scope.filter(profile => filteredSessions(profile.stats).length >= 2).length;
   const improvement = scoreImprovementData(completedScoreHistory(sessions, view.rangeDays)).overall;
+  const certifiedUsers = scope.filter(profile => Boolean(profile.certified)).length;
   ui.insights.innerHTML = [
     kpi(active7, "Active Users · 7 Days"),
     kpi(active30, "Active Users · 30 Days"),
     kpi(sessions.length ? `${Math.round(completed / sessions.length * 100)}%` : "—", "Completion Rate"),
     kpi(scope.length ? `${Math.round(repeatUsers / scope.length * 100)}%` : "—", "Repeat User Rate"),
-    kpi(improvement != null ? `${improvement >= 0 ? "+" : ""}${Math.round(improvement)} pts` : "—", "Average Score Improvement")
+    kpi(improvement != null ? `${improvement >= 0 ? "+" : ""}${Math.round(improvement)} pts` : "—", "Average Score Improvement"),
+    kpi(certifiedUsers, "Certified Users")
   ].join("");
   renderPerformanceLists(scope);
 }
