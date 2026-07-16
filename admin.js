@@ -86,6 +86,14 @@ function shortPreview(value, limit = 88) {
   return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
 }
 
+function anonymousPlayerId(value) {
+  const source = String(value || "").trim().toLowerCase();
+  if (!source) return "";
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index++) hash = Math.imul(hash ^ source.charCodeAt(index), 16777619);
+  return `Player-${(hash >>> 0).toString(16).toUpperCase().padStart(8, "0").slice(-6)}`;
+}
+
 function listWindow(kind, rows) {
   const state = listState(kind), pageSize = state.limit;
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
@@ -147,6 +155,17 @@ function activePracticeStreak(stats) {
   const lastDay = Number(streak.lastDay);
   const gap = today - lastDay;
   return Number.isFinite(lastDay) && gap >= 0 && gap <= 1 ? Math.max(0, Math.floor(Number(streak.current) || 0)) : 0;
+}
+
+function practiceStreakSummary(stats) {
+  const days = [...new Set((stats?.sessions || []).map(session => localDayNumber(session.date)).filter(Number.isFinite))].sort((a, b) => a - b);
+  let run = days.length ? 1 : 0, derivedBest = run;
+  for (let index = 1; index < days.length; index++) {
+    run = days[index] - days[index - 1] === 1 ? run + 1 : 1;
+    derivedBest = Math.max(derivedBest, run);
+  }
+  const current = activePracticeStreak(stats), savedBest = Math.max(0, Math.floor(Number(stats?.practiceStreak?.best) || 0));
+  return { current, best: Math.max(current, savedBest, derivedBest) };
 }
 
 function average(values) {
@@ -377,32 +396,30 @@ function renderAudience(scope) {
 }
 
 function renderStats(scope) {
-  const sessionsByProfile = scope.map(profile => ({ profile, sessions: filteredSessions(profile.stats).map(session => ({ ...session, __profileId: profile.profileId, __profileLabel: profile.label })) }));
+  const sessionsByProfile = scope.map(profile => ({ profile, sessions: filteredSessions(profile.stats).map(session => ({ ...session, __profileId: profile.profileId, __profileLabel: anonymousPlayerId(profile.profileId) })) }));
   const sessions = sessionsByProfile.flatMap(item => item.sessions);
   const studySeconds = view.category === "all" && view.length === "all"
     ? scope.reduce((sum, profile) => sum + (Number(profile.stats?.totalStudySeconds) || 0), 0)
     : sessions.reduce((sum, session) => sum + (Number(session.durationSeconds) || 0), 0);
-  const latestScores = sessionsByProfile.map(item => item.sessions[item.sessions.length - 1]?.scorePercent).filter(value => value !== undefined);
   const averageScore = average(sessions.map(session => session.scorePercent));
-  const practiceValues = scope.map(profile => activePracticeStreak(profile.stats));
+  const practiceValues = scope.map(profile => practiceStreakSummary(profile.stats));
   const currentValues = scope.map(profile => Number(profile.stats?.answerStreak?.current) || 0);
   const bestValues = scope.map(profile => Number(profile.stats?.answerStreak?.best) || 0);
   const single = scope.length === 1;
-  const lastScore = single ? latestScores[0] : average(latestScores);
-  const practice = single ? practiceValues[0] : average(practiceValues);
+  const practiceCurrent = single ? practiceValues[0]?.current : average(practiceValues.map(value => value.current));
+  const practiceBest = single ? practiceValues[0]?.best : Math.max(0, ...practiceValues.map(value => value.best));
   const current = single ? currentValues[0] : average(currentValues);
   const best = single ? bestValues[0] : Math.max(0, ...bestValues);
+  const pair = (currentValue, bestValue) => `<div class="stats-pair"><div><small>Current</small><b>${Math.round(Number(currentValue) || 0)}</b></div><div><small>Best</small><b>${Math.round(Number(bestValue) || 0)}</b></div></div>`;
   ui.stats.innerHTML = [
     `<div class="stats-cell"><b>${formatDuration(studySeconds)}</b><span>Study Time</span></div>`,
-    `<div class="stats-cell"><b>${lastScore == null ? "—" : `${Math.round(lastScore)}%`}</b><span>Last Score</span></div>`,
     `<div class="stats-cell"><b>${averageScore == null ? "—" : `${Math.round(averageScore)}%`}</b><span>Average Score</span></div>`,
-    `<div class="stats-cell"><b>${practice == null ? "0" : Math.round(practice)}</b><span>Practice Day Streak</span></div>`,
-    `<div class="stats-cell"><b>${current == null ? "0" : Math.round(current)}</b><span>Current Streak</span></div>`,
-    `<div class="stats-cell"><b>${Math.round(best)}</b><span>Best Streak</span></div>`
+    `<div class="stats-cell" title="Current and best consecutive practice-day streaks">${pair(practiceCurrent, practiceBest)}<span>Practice Day Streak</span></div>`,
+    `<div class="stats-cell" title="Current and best consecutive correct-answer streaks">${pair(current, best)}<span>Correct Streak</span></div>`
   ].join("");
   ui.statsNote.textContent = single
     ? "This view matches the anonymous user's in-app statistics. Filters apply to study time and score history; streaks span all modes."
-    : "Aggregated view: Last Score, Practice Day Streak, and Current Streak are averages across users; Best Streak is the highest. Other totals combine all selected users.";
+    : "Aggregated view: current streaks are averages across users; best streaks are the highest achieved. Other totals combine all selected users.";
   renderTrend(sessions);
   renderHistory(sessions);
 }
@@ -428,7 +445,7 @@ function renderTrend(sessions) {
 
 function renderHistory(sessions) {
   const recent = sessions.slice().reverse(), page = listWindow("history", recent);
-  ui.history.innerHTML = recent.length ? `<h3>Recent Score History</h3>${listControls("history", recent.length)}<ol class="admin-history-list" start="${page.start + 1}">${page.rows.map(session => `<li><div class="admin-history-entry"><code class="admin-history-user-id" title="Anonymous user ID: ${escapeHtml(session.__profileId || "Unknown")}">${escapeHtml(session.__profileId || "Unknown")}</code><span>${escapeHtml(formatDate(session.date))} — ${escapeHtml(categoryOf(session))} ${lengthOf(session)}: <strong>${escapeHtml(session.scorePercent)}%</strong>, ${escapeHtml(formatDuration(session.durationSeconds))}</span></div></li>`).join("")}</ol>` : "";
+  ui.history.innerHTML = recent.length ? `<h3>Recent Score History</h3>${listControls("history", recent.length)}<ol class="admin-history-list" start="${page.start + 1}">${page.rows.map(session => { const playerId = anonymousPlayerId(session.__profileId); return `<li><div class="admin-history-entry"><code class="admin-history-user-id" title="Anonymous user ID: ${escapeHtml(playerId || "Unknown")}">ID: ${escapeHtml(playerId || "Unknown")}</code><span>${escapeHtml(formatDate(session.date))} — ${escapeHtml(categoryOf(session))} ${lengthOf(session)}: <strong>${escapeHtml(session.scorePercent)}%</strong>, ${escapeHtml(formatDuration(session.durationSeconds))}</span></div></li>`; }).join("")}</ol>` : "";
   bindListControls(ui.history, "history", () => renderHistory(sessions));
 }
 
@@ -437,7 +454,7 @@ function renderInsights(scope) {
   const latestTimes = scope.map(profile => Math.max(0, ...(profile.stats?.sessions || []).map(session => new Date(session.date).getTime()).filter(Number.isFinite)));
   const active7 = latestTimes.filter(time => time >= now - 7 * 86400000).length;
   const active30 = latestTimes.filter(time => time >= now - 30 * 86400000).length;
-  const sessions = scope.flatMap(profile => filteredSessions(profile.stats).map(session => ({ ...session, __profileId: profile.profileId, __profileLabel: profile.label })));
+  const sessions = scope.flatMap(profile => filteredSessions(profile.stats).map(session => ({ ...session, __profileId: profile.profileId, __profileLabel: anonymousPlayerId(profile.profileId) })));
   const completed = sessions.filter(session => Number(session.answered) > 0 && Number(session.answered) === Number(session.totalQuestions)).length;
   const repeatUsers = scope.filter(profile => filteredSessions(profile.stats).length >= 2).length;
   const improvement = scoreImprovementData(completedScoreHistory(sessions, view.rangeDays)).overall;
@@ -460,7 +477,7 @@ function renderPerformanceLists(scope) {
   const devices = scope.flatMap(profile => (profile.devices || []).filter(device => Number(device.quizCount) > 0));
   const types = ["mobile", "tablet", "desktop", "unknown"].map(type => ({ type, count: devices.filter(device => String(device.deviceClass || "unknown") === type).length })).filter(item => item.count);
   renderComparisonBars(ui.deviceMix, types.map(item => ({ label: item.type, value: item.count, detail: String(item.count) })), { legend: "Devices", empty: "No devices are available in this view." });
-  const users = scope.map(profile => { const sessions = filteredSessions(profile.stats); return { label: profile.label, score: average(sessions.map(session => session.scorePercent)), count: sessions.length }; }).filter(item => item.score != null).sort((a, b) => b.score - a.score || b.count - a.count);
+  const users = scope.map(profile => { const sessions = filteredSessions(profile.stats); return { label: anonymousPlayerId(profile.profileId), score: average(sessions.map(session => session.scorePercent)), count: sessions.length }; }).filter(item => item.score != null).sort((a, b) => b.score - a.score || b.count - a.count);
   renderComparisonBars(ui.userComparison, users.map(item => ({ label: item.label, value: item.score, detail: `${Math.round(item.score)}% · ${item.count} attempt${item.count === 1 ? "" : "s"}` })), { maxValue: 100, axisLabel: "100%", legend: "Average score by anonymous user", empty: "No user comparison is available for this view.", listKey: "userComparison", render: () => renderPerformanceLists(scope) });
 }
 
@@ -488,7 +505,7 @@ function renderUsersTable() {
     const devices = (profile.devices || []).filter(device => Number(device.quizCount) > 0);
     const latest = sessions.slice().sort((a,b)=>new Date(a.date)-new Date(b.date)).slice(-1)[0];
     const location = latestDeviceLocation(profile);
-    return `<tr><td><strong>${escapeHtml(profile.label)}</strong></td><td>${sessions.length}</td><td>${devices.length}</td><td>${sessions.length ? `${Math.round(average(sessions.map(session=>session.scorePercent)))}%` : "—"}</td><td>${escapeHtml(locationLabel(location))}</td><td>${escapeHtml(latest ? formatDate(latest.date) : "—")}</td><td><button type="button" data-view-profile="${escapeHtml(profile.profileId)}">View</button></td></tr>`;
+    return `<tr><td><strong>${escapeHtml(anonymousPlayerId(profile.profileId))}</strong></td><td>${sessions.length}</td><td>${devices.length}</td><td>${sessions.length ? `${Math.round(average(sessions.map(session=>session.scorePercent)))}%` : "—"}</td><td>${escapeHtml(locationLabel(location))}</td><td>${escapeHtml(latest ? formatDate(latest.date) : "—")}</td><td><button type="button" data-view-profile="${escapeHtml(profile.profileId)}">View</button></td></tr>`;
   });
   const page = listWindow("users", rows);
   ui.users.innerHTML = rows.length ? `${listControls("users", rows.length)}<div class="admin-table-scroll ${page.state.limit === 20 ? "expanded" : ""}"><table class="admin-table"><thead><tr><th>Anonymous User</th><th>Attempts</th><th>Devices</th><th>Avg Score</th><th>Latest Region</th><th>Last Quiz</th><th></th></tr></thead><tbody>${page.rows.join("")}</tbody></table></div>` : `<div class="region-empty">No users have opted in yet.</div>`;
@@ -503,7 +520,7 @@ function renderUsersTable() {
 }
 
 function renderFilters() {
-  ui.userFilter.innerHTML = `<option value="all">All opted-in users</option>${profiles.map(profile => `<option value="${escapeHtml(profile.profileId)}">${escapeHtml(profile.label)}</option>`).join("")}`;
+  ui.userFilter.innerHTML = `<option value="all">All opted-in users</option>${profiles.map(profile => `<option value="${escapeHtml(profile.profileId)}">${escapeHtml(anonymousPlayerId(profile.profileId))}</option>`).join("")}`;
   ui.userFilter.value = profiles.some(profile => profile.profileId === view.profileId) ? view.profileId : "all";
   view.profileId = ui.userFilter.value;
   const categoryOptions = [["all","All"],["test","Test"],["quiz","Quiz"],["study","Study"]];
@@ -523,7 +540,7 @@ function renderFilters() {
 function renderDashboard() {
   renderFilters();
   const scope = selectedProfiles();
-  ui.scopeTitle.textContent = view.profileId === "all" ? "All opted-in users" : scope[0]?.label || "Anonymous user";
+  ui.scopeTitle.textContent = view.profileId === "all" ? "All opted-in users" : anonymousPlayerId(scope[0]?.profileId) || "Anonymous user";
   renderAudience(scope);
   renderStats(scope);
   const userLocations = scope.map(profile => ({ profile, device: latestDeviceLocation(profile) })).filter(item => item.device);

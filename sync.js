@@ -119,6 +119,14 @@ function readableError(error, fallback) {
   return fallback;
 }
 
+function anonymousPlayerId(value) {
+  const source = String(value || "").trim().toLowerCase();
+  if (!source) return "";
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index++) hash = Math.imul(hash ^ source.charCodeAt(index), 16777619);
+  return `Player-${(hash >>> 0).toString(16).toUpperCase().padStart(8, "0").slice(-6)}`;
+}
+
 function updateConsentControl(enabled) {
   if (!elements.analytics) return;
   elements.analytics.checked = Boolean(enabled);
@@ -142,8 +150,10 @@ function renderControls() {
   if (elements.showPairing) elements.showPairing.disabled = syncing;
   if (elements.anonymousProfileId) {
     const profileId = String(cloudState?.profileId || "").trim();
-    elements.anonymousProfileId.textContent = profileId;
-    elements.anonymousProfileId.title = profileId ? `Anonymous user ID: ${profileId}` : "";
+    const playerId = anonymousPlayerId(profileId);
+    elements.anonymousProfileId.textContent = playerId ? `ID: ${playerId}` : "";
+    elements.anonymousProfileId.title = playerId ? `Anonymous user ID: ${playerId}` : "";
+    elements.anonymousProfileId.setAttribute("aria-label", playerId ? `Anonymous user ID: ${playerId}` : "Anonymous user ID");
     elements.anonymousProfileId.classList.toggle("hidden", !profileId);
   }
   updateConsentControl(Boolean(cloudState && cloudState.analyticsConsent));

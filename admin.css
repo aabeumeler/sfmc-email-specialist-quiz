@@ -21,7 +21,7 @@
 .admin-toolbar span{color:var(--muted);font-size:12px}
 .admin-toolbar-actions{display:flex;justify-content:center;gap:8px}.admin-toolbar-actions button{width:auto;min-width:108px}
 .admin-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-#adminStatsGrid{grid-template-columns:repeat(3,minmax(0,1fr))}
+#adminStatsGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .admin-kpi{min-width:0;padding:14px;border:1.5px solid var(--soft-border);border-radius:16px;background:#faf7ef}
 .admin-kpi b{display:block;font-size:clamp(22px,3vw,34px);line-height:1.05}
 .admin-kpi span{display:block;margin-top:5px;color:var(--muted);font-size:12px;font-weight:800}
