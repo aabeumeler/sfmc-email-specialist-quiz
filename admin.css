@@ -46,8 +46,14 @@
 .question-preview{display:inline-block;max-width:62ch;color:var(--text)}
 .performance-list{display:grid;gap:8px}
 .performance-row{display:grid;grid-template-columns:minmax(90px,1fr) 2fr auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--soft-border);border-radius:12px}
+.performance-row>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.performance-row>span:last-child{text-align:right;white-space:nowrap}
 .performance-bar{height:12px;border-radius:99px;background:#e5dccb;overflow:hidden}
 .performance-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--coral),var(--mint));border-radius:inherit}
+.comparison-axis{display:grid;grid-template-columns:minmax(90px,1fr) 2fr auto;gap:10px;margin:0 10px 5px;color:var(--muted);font-size:10px;font-weight:800}
+.comparison-axis span{grid-column:2;grid-row:1}
+.comparison-axis span:last-child{text-align:right}
+.admin-user-comparison{margin-top:16px;padding-top:14px;border-top:1.5px dashed var(--soft-border)}
 .admin-graph-card{margin-top:16px}
 .admin-score-graph{display:block;width:100%;height:auto}
 .admin-history-list{margin:14px 0 0;padding-left:22px}
@@ -83,6 +89,7 @@ html[data-theme="dark"] .performance-bar{background:#111b32}
   .admin-filter-buttons{grid-template-columns:repeat(2,minmax(0,1fr))}
   .admin-table-controls{justify-content:space-between}
   .performance-row{grid-template-columns:minmax(72px,.8fr) 1fr auto;gap:7px;font-size:12px}
+  .comparison-axis{grid-template-columns:minmax(72px,.8fr) 1fr auto;gap:7px}
 }
 
 @media(max-width:380px){

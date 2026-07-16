@@ -1,6 +1,7 @@
 const CONFIG = window.SFMC_SYNC_CONFIG || {};
 const SUPABASE_MODULE = CONFIG.supabaseModule || "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.2/+esm";
 const ADMIN_AUTH_KEY = "sfmc-admin-auth-v1";
+const ADMIN_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
 const ui = {
   login: document.getElementById("adminLogin"),
@@ -26,6 +27,7 @@ const ui = {
   insights: document.getElementById("insightGrid"),
   categories: document.getElementById("categoryPerformance"),
   deviceMix: document.getElementById("deviceMix"),
+  userComparison: document.getElementById("userComparison"),
   questions: document.getElementById("questionInsights"),
   users: document.getElementById("adminUsersTable")
 };
@@ -50,7 +52,7 @@ function formatDuration(seconds) {
 
 function formatDate(value) {
   const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString() : "—";
+  return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { timeZone: ADMIN_TIME_ZONE }) : "—";
 }
 
 function shortPreview(value, limit = 88) {
@@ -115,6 +117,112 @@ function kpi(value, label, detail = "") {
   return `<div class="admin-kpi"><b>${escapeHtml(value)}</b><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</div>`;
 }
 
+function renderComparisonBars(target, items, options = {}) {
+  const rows = items.filter(item => Number.isFinite(Number(item.value)));
+  if (!rows.length) {
+    target.innerHTML = `<div class="region-empty">${escapeHtml(options.empty || "No comparison data is available for this view.")}</div>`;
+    return;
+  }
+  const max = Math.max(1, Number(options.maxValue) || Math.max(...rows.map(item => Number(item.value))));
+  const endLabel = options.axisLabel || String(Math.round(max));
+  target.innerHTML = `<div class="comparison-chart"><div class="comparison-axis" aria-hidden="true"><span>0</span><span>${escapeHtml(endLabel)}</span></div><div class="performance-list">${rows.map(item => `<div class="performance-row"><strong title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</strong><div class="performance-bar" role="img" aria-label="${escapeHtml(`${item.label}: ${item.detail}`)}"><span style="width:${Math.max(0,Math.min(100,Number(item.value)/max*100))}%"></span></div><span>${escapeHtml(item.detail)}</span></div>`).join("")}</div>${options.legend ? `<div class="chart-legend"><span><i class="legend-bar"></i>${escapeHtml(options.legend)}</span></div>` : ""}</div>`;
+}
+
+function smoothGraphPath(points) {
+  if (!points.length) return "";
+  if (points.length === 1) return `M${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  if (points.length === 2) {
+    const mid = (points[0].x + points[1].x) / 2;
+    return `M${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)} C${mid.toFixed(1)} ${points[0].y.toFixed(1)}, ${mid.toFixed(1)} ${points[1].y.toFixed(1)}, ${points[1].x.toFixed(1)} ${points[1].y.toFixed(1)}`;
+  }
+  const h = [], slopes = [], tangents = new Array(points.length).fill(0);
+  for (let index = 0; index < points.length - 1; index++) {
+    h[index] = Math.max(.001, points[index + 1].x - points[index].x);
+    slopes[index] = (points[index + 1].y - points[index].y) / h[index];
+  }
+  tangents[0] = slopes[0];
+  tangents[points.length - 1] = slopes[slopes.length - 1];
+  for (let index = 1; index < points.length - 1; index++) {
+    if (slopes[index - 1] === 0 || slopes[index] === 0 || Math.sign(slopes[index - 1]) !== Math.sign(slopes[index])) tangents[index] = 0;
+    else {
+      const firstWeight = 2 * h[index] + h[index - 1], secondWeight = h[index] + 2 * h[index - 1];
+      tangents[index] = (firstWeight + secondWeight) / ((firstWeight / slopes[index - 1]) + (secondWeight / slopes[index]));
+    }
+  }
+  let path = `M${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  for (let index = 0; index < points.length - 1; index++) {
+    const segment = h[index];
+    path += ` C${(points[index].x + segment / 3).toFixed(1)} ${(points[index].y + tangents[index] * segment / 3).toFixed(1)}, ${(points[index + 1].x - segment / 3).toFixed(1)} ${(points[index + 1].y - tangents[index + 1] * segment / 3).toFixed(1)}, ${points[index + 1].x.toFixed(1)} ${points[index + 1].y.toFixed(1)}`;
+  }
+  return path;
+}
+
+function trendBucketConfig(spanMs) {
+  const hour = 60 * 60 * 1000, day = 24 * hour, days = spanMs / day;
+  if (days <= 2) return { unit: "hour", step: 3, label: "3-hour UTC averages" };
+  if (days <= 14) return { unit: "day", step: 1, label: "Daily UTC averages" };
+  if (days <= 90) return { unit: "week", step: 1, label: "Weekly UTC averages" };
+  if (days <= 730) return { unit: "month", step: 1, label: "Monthly UTC averages" };
+  return { unit: "quarter", step: 1, label: "Quarterly UTC averages" };
+}
+
+function utcBucketBounds(time, config) {
+  const hour = 60 * 60 * 1000, day = 24 * hour, date = new Date(time);
+  let start, end;
+  if (config.unit === "hour") {
+    const size = config.step * hour;
+    start = Math.floor(time / size) * size;
+    end = start + size;
+  } else if (config.unit === "day") {
+    start = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+    end = start + config.step * day;
+  } else if (config.unit === "week") {
+    const dayStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+    start = dayStart - ((date.getUTCDay() + 6) % 7) * day;
+    end = start + 7 * config.step * day;
+  } else if (config.unit === "month") {
+    start = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+    end = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + config.step, 1);
+  } else {
+    const quarterMonth = Math.floor(date.getUTCMonth() / 3) * 3;
+    start = Date.UTC(date.getUTCFullYear(), quarterMonth, 1);
+    end = Date.UTC(date.getUTCFullYear(), quarterMonth + 3 * config.step, 1);
+  }
+  return { start, end };
+}
+
+function sessionIdentity(session) {
+  const profile = session.__profileId || "profile";
+  return `${profile}|${session.id || [session.date, session.sampleType || session.mode, session.correct, session.totalQuestions, session.durationSeconds].join("|")}`;
+}
+
+function bucketTrendSessions(sessions) {
+  const seen = new Set();
+  const valid = sessions.filter(session => { const key = sessionIdentity(session); if (seen.has(key)) return false; seen.add(key); return true; }).map(session => ({ session, time: new Date(session.date).getTime(), score: Number(session.scorePercent) })).filter(item => Number.isFinite(item.time) && Number.isFinite(item.score)).sort((a, b) => a.time - b.time);
+  if (!valid.length) return null;
+  const day = 24 * 60 * 60 * 1000, rawStart = valid[0].time, rawEnd = valid[valid.length - 1].time;
+  const start = rawStart === rawEnd ? rawStart - day / 2 : rawStart;
+  const end = rawStart === rawEnd ? rawEnd + day / 2 : rawEnd;
+  const config = trendBucketConfig(end - start), buckets = new Map();
+  valid.forEach(item => {
+    const bounds = utcBucketBounds(item.time, config), key = bounds.start;
+    const bucket = buckets.get(key) || { sum: 0, count: 0, time: bounds.start + (bounds.end - bounds.start) / 2 };
+    bucket.sum += Math.max(0, Math.min(100, item.score));
+    bucket.count++;
+    buckets.set(key, bucket);
+  });
+  return { start, end, config, rows: [...buckets.values()].sort((a, b) => a.time - b.time).map(bucket => ({ ...bucket, time: Math.max(start, Math.min(end, bucket.time)), pct: Math.round(bucket.sum / bucket.count) })) };
+}
+
+function trendTimeTicks(start, end, left, plotWidth) {
+  const spanDays = (end - start) / 86400000, count = spanDays <= 14 ? 5 : 6;
+  return Array.from({ length: count }, (_, index) => {
+    const ratio = index / (count - 1), date = new Date(start + (end - start) * ratio);
+    const label = spanDays <= 2 ? date.toLocaleTimeString(undefined, { hour: "numeric", timeZone: ADMIN_TIME_ZONE }) : spanDays <= 14 ? date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", timeZone: ADMIN_TIME_ZONE }) : spanDays <= 365 ? date.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: ADMIN_TIME_ZONE }) : date.toLocaleDateString(undefined, { month: "short", year: "2-digit", timeZone: ADMIN_TIME_ZONE });
+    return { x: left + plotWidth * ratio, label, anchor: index === 0 ? "start" : index === count - 1 ? "end" : "middle" };
+  });
+}
+
 function latestDeviceLocation(profile) {
   return (profile.devices || []).filter(device => Number(device.quizCount) > 0 && (device.regionCode || device.regionName)).sort((a, b) =>
     new Date(b.locationUpdatedAt || b.lastSeenAt) - new Date(a.locationUpdatedAt || a.lastSeenAt)
@@ -145,16 +253,8 @@ function renderHeat(target, items) {
     existing.count += 1;
     counts.set(key, existing);
   });
-  if (!counts.size) {
-    target.innerHTML = `<div class="region-empty">No opted-in region data is available for this view yet.</div>`;
-    return;
-  }
   const rows = [...counts.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  const max = rows[0].count;
-  target.innerHTML = rows.map(row => {
-    const alpha = (.12 + .72 * row.count / max).toFixed(2);
-    return `<div class="region-tile" style="--heat-alpha:${alpha}"><b>${escapeHtml(row.count)}</b><span>${escapeHtml(row.label)}</span></div>`;
-  }).join("");
+  renderComparisonBars(target, rows.map(row => ({ label: row.label, value: row.count, detail: String(row.count) })), { legend: "Count by approximate region", empty: "No opted-in region data is available for this view yet." });
 }
 
 function renderAudience(scope) {
@@ -171,7 +271,7 @@ function renderAudience(scope) {
 }
 
 function renderStats(scope) {
-  const sessionsByProfile = scope.map(profile => ({ profile, sessions: filteredSessions(profile.stats) }));
+  const sessionsByProfile = scope.map(profile => ({ profile, sessions: filteredSessions(profile.stats).map(session => ({ ...session, __profileId: profile.profileId })) }));
   const sessions = sessionsByProfile.flatMap(item => item.sessions);
   const studySeconds = view.category === "all" && view.length === "all"
     ? scope.reduce((sum, profile) => sum + (Number(profile.stats?.totalStudySeconds) || 0), 0)
@@ -204,23 +304,20 @@ function renderStats(scope) {
 }
 
 function renderTrend(sessions) {
-  const points = sessions.slice(-200);
-  if (!points.length) {
+  const series = bucketTrendSessions(sessions);
+  if (!series) {
     ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="region-empty">No score trend is available for this view.</div></div>`;
     return;
   }
-  const width = 720, height = 240, left = 42, right = 16, top = 16, bottom = 34;
+  const width = 720, height = 260, left = 42, right = 16, top = 16, bottom = 46;
   const plotWidth = width - left - right, plotHeight = height - top - bottom;
-  const coords = points.map((session, index) => {
-    const pct = Math.max(0, Math.min(100, Number(session.scorePercent) || 0));
-    const x = points.length === 1 ? left + plotWidth / 2 : left + index * plotWidth / (points.length - 1);
-    const y = top + (1 - pct / 100) * plotHeight;
-    return { x, y, pct };
-  });
-  const path = coords.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
-  const circles = coords.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="graph-point"><title>${point.pct}%</title></circle>`).join("");
-  const grid = [0,50,100].map(value => { const y=top+(1-value/100)*plotHeight; return `<line class="graph-grid" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"></line><text class="graph-axis" x="6" y="${y+4}">${value}%</text>`; }).join("");
-  ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><svg class="admin-score-graph score-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="Filtered score trend"><rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="#fffdf6"></rect><rect class="graph-band-high" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-mid" x="${left}" y="${top+plotHeight*.25}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-low" x="${left}" y="${top+plotHeight*.5}" width="${plotWidth}" height="${plotHeight*.5}"></rect>${grid}<line class="graph-grid" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"></line><line class="graph-grid" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"></line><path class="graph-line" d="${path}"></path>${circles}</svg></div>`;
+  const coords = series.rows.map(bucket => ({ ...bucket, x: left + (bucket.time - series.start) / (series.end - series.start) * plotWidth, y: top + (1 - bucket.pct / 100) * plotHeight }));
+  const path = smoothGraphPath(coords);
+  const circles = coords.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="graph-point"><title>${escapeHtml(`${point.pct}% average · ${point.count} unique attempt${point.count === 1 ? "" : "s"}`)}</title></circle>`).join("");
+  const yValues = coords.length > 8 ? [0,25,50,75,100] : [0,50,100];
+  const grid = yValues.map(value => { const y=top+(1-value/100)*plotHeight; return `<line class="graph-grid" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"></line><text class="graph-axis" x="6" y="${y+4}">${value}%</text>`; }).join("");
+  const xTicks = trendTimeTicks(series.start, series.end, left, plotWidth).map(tick => `<text class="graph-axis graph-x-axis" text-anchor="${tick.anchor}" x="${tick.x.toFixed(1)}" y="${height-12}">${escapeHtml(tick.label)}</text>`).join("");
+  ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="chart-legend" aria-label="Chart legend"><span><i class="legend-line"></i>Average score</span><span><i class="legend-point"></i>${escapeHtml(series.config.label)}</span><span class="time-zone-label">Displayed in ${escapeHtml(ADMIN_TIME_ZONE)}</span></div><svg class="admin-score-graph score-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="Filtered score trend displayed in ${escapeHtml(ADMIN_TIME_ZONE)}"><rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="#fffdf6"></rect><rect class="graph-band-high" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-mid" x="${left}" y="${top+plotHeight*.25}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-low" x="${left}" y="${top+plotHeight*.5}" width="${plotWidth}" height="${plotHeight*.5}"></rect>${grid}<line class="graph-grid" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"></line><line class="graph-grid" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"></line><path class="graph-line" d="${path}"></path>${circles}${xTicks}</svg></div>`;
 }
 
 function renderHistory(sessions) {
@@ -258,11 +355,12 @@ function renderPerformanceLists(scope) {
     const sessions = scope.flatMap(profile => (profile.stats?.sessions || []).filter(session => categoryOf(session) === category));
     return { label: category[0].toUpperCase() + category.slice(1), count: sessions.length, score: average(sessions.map(session => session.scorePercent)) };
   });
-  ui.categories.innerHTML = `<div class="performance-list">${categories.map(item => `<div class="performance-row"><strong>${item.label}</strong><div class="performance-bar"><span style="width:${Math.max(0,item.score || 0)}%"></span></div><span>${item.score == null ? "—" : `${Math.round(item.score)}%`} · ${item.count}</span></div>`).join("")}</div>`;
+  renderComparisonBars(ui.categories, categories.filter(item => item.score != null).map(item => ({ label: item.label, value: item.score, detail: `${Math.round(item.score)}% · ${item.count} attempt${item.count === 1 ? "" : "s"}` })), { maxValue: 100, axisLabel: "100%", legend: "Average score and attempt count", empty: "No category performance is available for this view." });
   const devices = scope.flatMap(profile => (profile.devices || []).filter(device => Number(device.quizCount) > 0));
   const types = ["mobile", "tablet", "desktop", "unknown"].map(type => ({ type, count: devices.filter(device => String(device.deviceClass || "unknown") === type).length })).filter(item => item.count);
-  const max = Math.max(1, ...types.map(item => item.count));
-  ui.deviceMix.innerHTML = types.length ? `<div class="performance-list">${types.map(item => `<div class="performance-row"><strong>${escapeHtml(item.type)}</strong><div class="performance-bar"><span style="width:${item.count/max*100}%"></span></div><span>${item.count}</span></div>`).join("")}</div>` : `<div class="region-empty">No quiz-playing devices in this view.</div>`;
+  renderComparisonBars(ui.deviceMix, types.map(item => ({ label: item.type, value: item.count, detail: String(item.count) })), { legend: "Quiz-playing devices", empty: "No quiz-playing devices in this view." });
+  const users = scope.map(profile => { const sessions = filteredSessions(profile.stats); return { label: profile.label, score: average(sessions.map(session => session.scorePercent)), count: sessions.length }; }).filter(item => item.score != null).sort((a, b) => b.score - a.score || b.count - a.count).slice(0, 10);
+  renderComparisonBars(ui.userComparison, users.map(item => ({ label: item.label, value: item.score, detail: `${Math.round(item.score)}% · ${item.count} attempt${item.count === 1 ? "" : "s"}` })), { maxValue: 100, axisLabel: "100%", legend: "Average score by anonymous user (top 10)", empty: "No user comparison is available for this view." });
 }
 
 function mergeQuestionBuckets(scope) {
