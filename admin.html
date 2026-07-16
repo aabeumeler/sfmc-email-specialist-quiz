@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="robots" content="noindex, nofollow" />
   <meta id="themeColor" name="theme-color" content="#d9ecff" />
-  <title>SFMC Quiz Admin Analytics</title>
+  <title>SFMC Quiz Administrator Analytics</title>
   <script>
     (() => {
       const key = "sfmcThemePreferenceV1";
@@ -29,12 +29,12 @@
   <div class="cloud-bg" aria-hidden="true"></div>
   <main class="admin-app">
     <header class="admin-header">
-      <div><h1>SFMC Quiz Analytics</h1><div class="title-sub">private admin dashboard</div></div>
-      <a class="button-link secondary" href="index.html">Open Quiz</a>
+      <div><h1>SFMC Quiz Analytics</h1><div class="title-sub">Administrator Dashboard</div></div>
+      <a class="button-link secondary" href="index.html">Return Home</a>
     </header>
 
     <section id="adminLogin" class="admin-panel admin-login-panel">
-      <h2>Admin Sign In</h2>
+      <h2>Administrator Sign In</h2>
       <p>Use the private administrator email and password created in the secure authentication service. The password is never stored in this website or its GitHub repository.</p>
       <form id="adminLoginForm" class="admin-login-form">
         <label>Email<input id="adminEmail" type="email" autocomplete="username" required /></label>
@@ -59,8 +59,9 @@
       <section class="admin-panel">
         <div class="admin-filter-layout">
           <label>View<select id="adminUserFilter"><option value="all">All opted-in users</option></select></label>
-          <div><span class="admin-filter-label">Category</span><div id="adminCategoryFilter" class="admin-filter-buttons" role="group" aria-label="Category filter"></div></div>
-          <div><span class="admin-filter-label">Question count</span><div id="adminLengthFilter" class="admin-filter-buttons" role="group" aria-label="Question count filter"></div></div>
+          <label>Category<select id="adminCategoryFilter" aria-label="Category filter"></select></label>
+          <label>Question Count<select id="adminLengthFilter" aria-label="Question count filter"></select></label>
+          <label>Graph Timeframe<select id="adminRangeFilter" aria-label="Graph timeframe"></select></label>
         </div>
       </section>
 

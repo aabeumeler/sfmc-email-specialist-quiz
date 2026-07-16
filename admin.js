@@ -17,6 +17,7 @@ const ui = {
   userFilter: document.getElementById("adminUserFilter"),
   categoryFilter: document.getElementById("adminCategoryFilter"),
   lengthFilter: document.getElementById("adminLengthFilter"),
+  rangeFilter: document.getElementById("adminRangeFilter"),
   audience: document.getElementById("audienceSummary"),
   stats: document.getElementById("adminStatsGrid"),
   statsNote: document.getElementById("adminStatsNote"),
@@ -35,8 +36,31 @@ const ui = {
 const configured = Boolean(/^https:\/\//i.test(String(CONFIG.supabaseUrl || "")) && String(CONFIG.supabasePublishableKey || "").trim());
 let supabase = null;
 let profiles = [];
-const view = { profileId: "all", category: "all", length: "all" };
-const rowLimits = { questions: 5, users: 5 };
+const ADMIN_UI_STATE_KEY = "sfmc-admin-ui-v2";
+function readAdminUiState() {
+  try { return JSON.parse(sessionStorage.getItem(ADMIN_UI_STATE_KEY) || "{}"); } catch (error) { return {}; }
+}
+const savedUiState = readAdminUiState();
+const initialScrollY = Math.max(0, Math.floor(Number(savedUiState.scrollY) || 0));
+let restoredInitialScroll = false;
+const view = {
+  profileId: String(savedUiState.profileId || "all"),
+  category: ["all", "test", "quiz", "study"].includes(savedUiState.category) ? savedUiState.category : "all",
+  length: ["all", "10", "20", "50"].includes(String(savedUiState.length)) ? String(savedUiState.length) : "all",
+  rangeDays: [0, 1, 7, 30, 90, 180, 365].includes(Number(savedUiState.rangeDays)) ? Number(savedUiState.rangeDays) : 7
+};
+const listStates = savedUiState.lists && typeof savedUiState.lists === "object" ? savedUiState.lists : {};
+
+function saveAdminUiState() {
+  try { sessionStorage.setItem(ADMIN_UI_STATE_KEY, JSON.stringify({ ...view, lists: listStates, scrollY: Math.max(0, Math.round(window.scrollY || 0)) })); } catch (error) {}
+}
+
+function listState(kind) {
+  const saved = listStates[kind] || {};
+  const state = { limit: Number(saved.limit) === 20 ? 20 : 5, page: Math.max(0, Math.floor(Number(saved.page) || 0)) };
+  listStates[kind] = state;
+  return state;
+}
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
@@ -60,17 +84,32 @@ function shortPreview(value, limit = 88) {
   return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
 }
 
-function tableControls(kind, total) {
-  if (total <= 5) return "";
-  const expanded = rowLimits[kind] === 20;
-  return `<div class="admin-table-controls"><span>Showing ${Math.min(total, expanded ? 20 : 5)} of ${total}</span><button type="button" class="secondary" data-table-limit="${kind}">${expanded ? "Show 5" : "Show 20"}</button></div>`;
+function listWindow(kind, rows) {
+  const state = listState(kind), pageSize = state.limit;
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  state.page = Math.min(state.page, pageCount - 1);
+  const start = state.page * pageSize;
+  return { rows: rows.slice(start, start + pageSize), start, pageCount, state };
 }
 
-function bindTableLimit(target, kind, render) {
-  target.querySelector(`[data-table-limit="${kind}"]`)?.addEventListener("click", () => {
-    rowLimits[kind] = rowLimits[kind] === 20 ? 5 : 20;
+function listControls(kind, total) {
+  if (total <= 5) return "";
+  const state = listState(kind), pageSize = state.limit, pageCount = Math.max(1, Math.ceil(total / pageSize));
+  state.page = Math.min(state.page, pageCount - 1);
+  const start = state.page * pageSize, end = Math.min(total, start + pageSize);
+  return `<div class="admin-list-controls"><span>Showing ${start + 1}–${end} of ${total}</span><div><button type="button" class="secondary" data-list-action="limit" data-list-kind="${kind}">${pageSize === 5 ? "Show 20" : "Show 5"}</button>${pageSize === 20 && total > 20 ? `<button type="button" class="secondary" data-list-action="previous" data-list-kind="${kind}" ${state.page === 0 ? "disabled" : ""}>Previous</button><button type="button" class="secondary" data-list-action="next" data-list-kind="${kind}" ${state.page >= pageCount - 1 ? "disabled" : ""}>Next</button>` : ""}</div></div>`;
+}
+
+function bindListControls(target, kind, render) {
+  target.querySelectorAll(`[data-list-kind="${kind}"]`).forEach(button => button.addEventListener("click", () => {
+    const y = window.scrollY, state = listState(kind), action = button.dataset.listAction;
+    if (action === "limit") { state.limit = state.limit === 20 ? 5 : 20; state.page = 0; }
+    if (action === "previous") state.page = Math.max(0, state.page - 1);
+    if (action === "next") state.page += 1;
+    saveAdminUiState();
     render();
-  });
+    requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "auto" }));
+  }));
 }
 
 function categoryOf(session) {
@@ -123,9 +162,11 @@ function renderComparisonBars(target, items, options = {}) {
     target.innerHTML = `<div class="region-empty">${escapeHtml(options.empty || "No comparison data is available for this view.")}</div>`;
     return;
   }
+  const page = options.listKey ? listWindow(options.listKey, rows) : { rows };
   const max = Math.max(1, Number(options.maxValue) || Math.max(...rows.map(item => Number(item.value))));
   const endLabel = options.axisLabel || String(Math.round(max));
-  target.innerHTML = `<div class="comparison-chart"><div class="comparison-axis" aria-hidden="true"><span>0</span><span>${escapeHtml(endLabel)}</span></div><div class="performance-list">${rows.map(item => `<div class="performance-row"><strong title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</strong><div class="performance-bar" role="img" aria-label="${escapeHtml(`${item.label}: ${item.detail}`)}"><span style="width:${Math.max(0,Math.min(100,Number(item.value)/max*100))}%"></span></div><span>${escapeHtml(item.detail)}</span></div>`).join("")}</div>${options.legend ? `<div class="chart-legend"><span><i class="legend-bar"></i>${escapeHtml(options.legend)}</span></div>` : ""}</div>`;
+  target.innerHTML = `<div class="comparison-chart"><div class="comparison-axis" aria-hidden="true"><span>0</span><span>${escapeHtml(endLabel)}</span></div><div class="performance-list">${page.rows.map(item => `<div class="performance-row"><strong title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</strong><div class="performance-bar" role="img" aria-label="${escapeHtml(`${item.label}: ${item.detail}`)}"><span style="width:${Math.max(0,Math.min(100,Number(item.value)/max*100))}%"></span></div><span>${escapeHtml(item.detail)}</span></div>`).join("")}</div>${options.legend ? `<div class="chart-legend"><span><i class="legend-bar"></i>${escapeHtml(options.legend)}</span></div>` : ""}${options.listKey ? listControls(options.listKey, rows.length) : ""}</div>`;
+  if (options.listKey) bindListControls(target, options.listKey, options.render);
 }
 
 function smoothGraphPath(points) {
@@ -157,69 +198,37 @@ function smoothGraphPath(points) {
   return path;
 }
 
-function trendBucketConfig(spanMs) {
-  const hour = 60 * 60 * 1000, day = 24 * hour, days = spanMs / day;
-  if (days <= 2) return { unit: "hour", step: 3, label: "3-hour UTC averages" };
-  if (days <= 14) return { unit: "day", step: 1, label: "Daily UTC averages" };
-  if (days <= 90) return { unit: "week", step: 1, label: "Weekly UTC averages" };
-  if (days <= 730) return { unit: "month", step: 1, label: "Monthly UTC averages" };
-  return { unit: "quarter", step: 1, label: "Quarterly UTC averages" };
-}
-
-function utcBucketBounds(time, config) {
-  const hour = 60 * 60 * 1000, day = 24 * hour, date = new Date(time);
-  let start, end;
-  if (config.unit === "hour") {
-    const size = config.step * hour;
-    start = Math.floor(time / size) * size;
-    end = start + size;
-  } else if (config.unit === "day") {
-    start = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-    end = start + config.step * day;
-  } else if (config.unit === "week") {
-    const dayStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-    start = dayStart - ((date.getUTCDay() + 6) % 7) * day;
-    end = start + 7 * config.step * day;
-  } else if (config.unit === "month") {
-    start = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
-    end = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + config.step, 1);
-  } else {
-    const quarterMonth = Math.floor(date.getUTCMonth() / 3) * 3;
-    start = Date.UTC(date.getUTCFullYear(), quarterMonth, 1);
-    end = Date.UTC(date.getUTCFullYear(), quarterMonth + 3 * config.step, 1);
-  }
-  return { start, end };
-}
-
 function sessionIdentity(session) {
   const profile = session.__profileId || "profile";
   return `${profile}|${session.id || [session.date, session.sampleType || session.mode, session.correct, session.totalQuestions, session.durationSeconds].join("|")}`;
 }
 
-function bucketTrendSessions(sessions) {
+function completedScoreHistory(sessions, days) {
   const seen = new Set();
-  const valid = sessions.filter(session => { const key = sessionIdentity(session); if (seen.has(key)) return false; seen.add(key); return true; }).map(session => ({ session, time: new Date(session.date).getTime(), score: Number(session.scorePercent) })).filter(item => Number.isFinite(item.time) && Number.isFinite(item.score)).sort((a, b) => a.time - b.time);
-  if (!valid.length) return null;
-  const day = 24 * 60 * 60 * 1000, rawStart = valid[0].time, rawEnd = valid[valid.length - 1].time;
-  const start = rawStart === rawEnd ? rawStart - day / 2 : rawStart;
-  const end = rawStart === rawEnd ? rawEnd + day / 2 : rawEnd;
-  const config = trendBucketConfig(end - start), buckets = new Map();
-  valid.forEach(item => {
-    const bounds = utcBucketBounds(item.time, config), key = bounds.start;
-    const bucket = buckets.get(key) || { sum: 0, count: 0, time: bounds.start + (bounds.end - bounds.start) / 2 };
-    bucket.sum += Math.max(0, Math.min(100, item.score));
-    bucket.count++;
-    buckets.set(key, bucket);
-  });
-  return { start, end, config, rows: [...buckets.values()].sort((a, b) => a.time - b.time).map(bucket => ({ ...bucket, time: Math.max(start, Math.min(end, bucket.time)), pct: Math.round(bucket.sum / bucket.count) })) };
+  const now = Date.now(), cutoff = Number(days) > 0 ? now - Number(days) * 86400000 : -Infinity;
+  return sessions.filter(session => {
+    const key = sessionIdentity(session);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    const answered = Number(session.answered), total = Number(session.totalQuestions || session.questionCount);
+    const time = new Date(session.date).getTime();
+    return answered > 0 && answered === total && Number.isFinite(time) && time >= cutoff && time <= now;
+  }).map(session => {
+    const answered = Number(session.answered), saved = Number(session.scorePercent);
+    return { session, time: new Date(session.date).getTime(), pct: Math.max(0, Math.min(100, Number.isFinite(saved) ? saved : (Number(session.correct) || 0) / answered * 100)) };
+  }).sort((a, b) => a.time - b.time);
 }
 
-function trendTimeTicks(start, end, left, plotWidth) {
-  const spanDays = (end - start) / 86400000, count = spanDays <= 14 ? 5 : 6;
-  return Array.from({ length: count }, (_, index) => {
-    const ratio = index / (count - 1), date = new Date(start + (end - start) * ratio);
-    const label = spanDays <= 2 ? date.toLocaleTimeString(undefined, { hour: "numeric", timeZone: ADMIN_TIME_ZONE }) : spanDays <= 14 ? date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", timeZone: ADMIN_TIME_ZONE }) : spanDays <= 365 ? date.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: ADMIN_TIME_ZONE }) : date.toLocaleDateString(undefined, { month: "short", year: "2-digit", timeZone: ADMIN_TIME_ZONE });
-    return { x: left + plotWidth * ratio, label, anchor: index === 0 ? "start" : index === count - 1 ? "end" : "middle" };
+function scoreHistoryTicks(rows, days, left, plotWidth) {
+  const count = Math.min(6, rows.length);
+  if (!count) return [];
+  const indexes = [...new Set(Array.from({ length: count }, (_, index) => Math.round(index * (rows.length - 1) / Math.max(1, count - 1))))];
+  const effectiveDays = Number(days) > 0 ? Number(days) : Math.max(1, (rows[rows.length - 1].time - rows[0].time) / 86400000);
+  return indexes.map((rowIndex, index) => {
+    const date = new Date(rows[rowIndex].time);
+    const label = effectiveDays <= 1 ? date.toLocaleTimeString(undefined, { hour: "numeric", timeZone: ADMIN_TIME_ZONE }) : effectiveDays <= 14 ? date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", timeZone: ADMIN_TIME_ZONE }) : effectiveDays <= 365 ? date.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: ADMIN_TIME_ZONE }) : date.toLocaleDateString(undefined, { month: "short", year: "2-digit", timeZone: ADMIN_TIME_ZONE });
+    const ratio = rows.length === 1 ? .5 : rowIndex / (rows.length - 1);
+    return { x: left + plotWidth * ratio, label, anchor: rows.length === 1 ? "middle" : index === 0 ? "start" : index === indexes.length - 1 ? "end" : "middle" };
   });
 }
 
@@ -243,7 +252,7 @@ function locationLabel(device) {
   return country && country !== "US" ? `${region}, ${country}` : String(region);
 }
 
-function renderHeat(target, items) {
+function renderHeat(target, items, listKey) {
   const counts = new Map();
   items.forEach(item => {
     const device = item.device || item;
@@ -254,7 +263,7 @@ function renderHeat(target, items) {
     counts.set(key, existing);
   });
   const rows = [...counts.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  renderComparisonBars(target, rows.map(row => ({ label: row.label, value: row.count, detail: String(row.count) })), { legend: "Count by approximate region", empty: "No opted-in region data is available for this view yet." });
+  renderComparisonBars(target, rows.map(row => ({ label: row.label, value: row.count, detail: String(row.count) })), { legend: "Count by approximate region", empty: "No opted-in region data is available for this view yet.", listKey, render: () => renderHeat(target, items, listKey) });
 }
 
 function renderAudience(scope) {
@@ -263,15 +272,15 @@ function renderAudience(scope) {
   const allSessions = scope.flatMap(profile => profile.stats?.sessions || []);
   const questionsAnswered = allSessions.reduce((sum, session) => sum + (Number(session.answered) || 0), 0);
   ui.audience.innerHTML = [
-    kpi(quizUsers.length, "Users With Quizzes", "paired users count once"),
-    kpi(quizDevices.length, "Quiz-Playing Devices", "each installation counts once"),
+    kpi(quizUsers.length, "Users", "paired users count once"),
+    kpi(quizDevices.length, "Devices", "each installation counts once"),
     kpi(allSessions.length, "Quiz Attempts"),
     kpi(questionsAnswered.toLocaleString(), "Questions Answered")
   ].join("");
 }
 
 function renderStats(scope) {
-  const sessionsByProfile = scope.map(profile => ({ profile, sessions: filteredSessions(profile.stats).map(session => ({ ...session, __profileId: profile.profileId })) }));
+  const sessionsByProfile = scope.map(profile => ({ profile, sessions: filteredSessions(profile.stats).map(session => ({ ...session, __profileId: profile.profileId, __profileLabel: profile.label })) }));
   const sessions = sessionsByProfile.flatMap(item => item.sessions);
   const studySeconds = view.category === "all" && view.length === "all"
     ? scope.reduce((sum, profile) => sum + (Number(profile.stats?.totalStudySeconds) || 0), 0)
@@ -288,9 +297,7 @@ function renderStats(scope) {
   const best = single ? bestValues[0] : Math.max(0, ...bestValues);
   ui.stats.innerHTML = [
     `<div class="stats-cell"><b>${formatDuration(studySeconds)}</b><span>Study Time</span></div>`,
-    `<div class="stats-cell"><b>${sessions.length}</b><span>Past Scores</span></div>`,
     `<div class="stats-cell"><b>${lastScore == null ? "—" : `${Math.round(lastScore)}%`}</b><span>Last Score</span></div>`,
-    `<div class="stats-cell"><b>50</b><span>Study Ready</span></div>`,
     `<div class="stats-cell"><b>${averageScore == null ? "—" : `${Math.round(averageScore)}%`}</b><span>Average Score</span></div>`,
     `<div class="stats-cell"><b>${practice == null ? "0" : Math.round(practice)}</b><span>Practice Streak</span></div>`,
     `<div class="stats-cell"><b>${current == null ? "0" : Math.round(current)}</b><span>Current Streak</span></div>`,
@@ -304,25 +311,26 @@ function renderStats(scope) {
 }
 
 function renderTrend(sessions) {
-  const series = bucketTrendSessions(sessions);
-  if (!series) {
-    ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="region-empty">No score trend is available for this view.</div></div>`;
+  const rows = completedScoreHistory(sessions, view.rangeDays);
+  if (!rows.length) {
+    ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="admin-graph-heading"><strong>Score History</strong><span>Every completed score in the selected timeframe</span></div><div class="region-empty">No completed scores are available for this timeframe.</div></div>`;
     return;
   }
   const width = 720, height = 260, left = 42, right = 16, top = 16, bottom = 46;
   const plotWidth = width - left - right, plotHeight = height - top - bottom;
-  const coords = series.rows.map(bucket => ({ ...bucket, x: left + (bucket.time - series.start) / (series.end - series.start) * plotWidth, y: top + (1 - bucket.pct / 100) * plotHeight }));
+  const coords = rows.map((row, index) => ({ ...row, x: rows.length === 1 ? left + plotWidth / 2 : left + index * plotWidth / (rows.length - 1), y: top + (1 - row.pct / 100) * plotHeight }));
   const path = smoothGraphPath(coords);
-  const circles = coords.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="graph-point"><title>${escapeHtml(`${point.pct}% average · ${point.count} unique attempt${point.count === 1 ? "" : "s"}`)}</title></circle>`).join("");
+  const circles = coords.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="graph-point"><title>${escapeHtml(`${Math.round(point.pct)}% · ${point.session.__profileLabel || "Anonymous user"} · ${formatDate(point.session.date)}`)}</title></circle>`).join("");
   const yValues = coords.length > 8 ? [0,25,50,75,100] : [0,50,100];
   const grid = yValues.map(value => { const y=top+(1-value/100)*plotHeight; return `<line class="graph-grid" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"></line><text class="graph-axis" x="6" y="${y+4}">${value}%</text>`; }).join("");
-  const xTicks = trendTimeTicks(series.start, series.end, left, plotWidth).map(tick => `<text class="graph-axis graph-x-axis" text-anchor="${tick.anchor}" x="${tick.x.toFixed(1)}" y="${height-12}">${escapeHtml(tick.label)}</text>`).join("");
-  ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="chart-legend" aria-label="Chart legend"><span><i class="legend-line"></i>Average score</span><span><i class="legend-point"></i>${escapeHtml(series.config.label)}</span><span class="time-zone-label">Displayed in ${escapeHtml(ADMIN_TIME_ZONE)}</span></div><svg class="admin-score-graph score-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="Filtered score trend displayed in ${escapeHtml(ADMIN_TIME_ZONE)}"><rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="#fffdf6"></rect><rect class="graph-band-high" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-mid" x="${left}" y="${top+plotHeight*.25}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-low" x="${left}" y="${top+plotHeight*.5}" width="${plotWidth}" height="${plotHeight*.5}"></rect>${grid}<line class="graph-grid" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"></line><line class="graph-grid" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"></line><path class="graph-line" d="${path}"></path>${circles}${xTicks}</svg></div>`;
+  const xTicks = scoreHistoryTicks(rows, view.rangeDays, left, plotWidth).map(tick => `<text class="graph-axis graph-x-axis" text-anchor="${tick.anchor}" x="${tick.x.toFixed(1)}" y="${height-12}">${escapeHtml(tick.label)}</text>`).join("");
+  ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="admin-graph-heading"><strong>Score History</strong><span>Every completed score in chronological order</span></div><div class="chart-legend" aria-label="Chart legend"><span><i class="legend-line"></i>Score History</span><span><i class="legend-point"></i>${rows.length} completed score${rows.length === 1 ? "" : "s"}</span><span class="time-zone-label">Displayed in ${escapeHtml(ADMIN_TIME_ZONE)}</span></div><svg class="admin-score-graph score-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="Score history displayed in ${escapeHtml(ADMIN_TIME_ZONE)}"><rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="#fffdf6"></rect><rect class="graph-band-high" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-mid" x="${left}" y="${top+plotHeight*.25}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-low" x="${left}" y="${top+plotHeight*.5}" width="${plotWidth}" height="${plotHeight*.5}"></rect>${grid}<line class="graph-grid" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"></line><line class="graph-grid" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"></line><path class="graph-line" d="${path}"></path>${circles}${xTicks}</svg></div>`;
 }
 
 function renderHistory(sessions) {
-  const recent = sessions.slice(-10).reverse();
-  ui.history.innerHTML = recent.length ? `<h3>Recent score history</h3><ol class="admin-history-list">${recent.map(session => `<li>${escapeHtml(formatDate(session.date))} — ${escapeHtml(categoryOf(session))} ${lengthOf(session)}: <strong>${escapeHtml(session.scorePercent)}%</strong>, ${escapeHtml(formatDuration(session.durationSeconds))}</li>`).join("")}</ol>` : "";
+  const recent = sessions.slice().reverse(), page = listWindow("history", recent);
+  ui.history.innerHTML = recent.length ? `<h3>Recent Score History</h3>${listControls("history", recent.length)}<ol class="admin-history-list" start="${page.start + 1}">${page.rows.map(session => `<li>${escapeHtml(formatDate(session.date))} — ${escapeHtml(categoryOf(session))} ${lengthOf(session)}: <strong>${escapeHtml(session.scorePercent)}%</strong>, ${escapeHtml(formatDuration(session.durationSeconds))}</li>`).join("")}</ol>` : "";
+  bindListControls(ui.history, "history", () => renderHistory(sessions));
 }
 
 function renderInsights(scope) {
@@ -359,8 +367,8 @@ function renderPerformanceLists(scope) {
   const devices = scope.flatMap(profile => (profile.devices || []).filter(device => Number(device.quizCount) > 0));
   const types = ["mobile", "tablet", "desktop", "unknown"].map(type => ({ type, count: devices.filter(device => String(device.deviceClass || "unknown") === type).length })).filter(item => item.count);
   renderComparisonBars(ui.deviceMix, types.map(item => ({ label: item.type, value: item.count, detail: String(item.count) })), { legend: "Quiz-playing devices", empty: "No quiz-playing devices in this view." });
-  const users = scope.map(profile => { const sessions = filteredSessions(profile.stats); return { label: profile.label, score: average(sessions.map(session => session.scorePercent)), count: sessions.length }; }).filter(item => item.score != null).sort((a, b) => b.score - a.score || b.count - a.count).slice(0, 10);
-  renderComparisonBars(ui.userComparison, users.map(item => ({ label: item.label, value: item.score, detail: `${Math.round(item.score)}% · ${item.count} attempt${item.count === 1 ? "" : "s"}` })), { maxValue: 100, axisLabel: "100%", legend: "Average score by anonymous user (top 10)", empty: "No user comparison is available for this view." });
+  const users = scope.map(profile => { const sessions = filteredSessions(profile.stats); return { label: profile.label, score: average(sessions.map(session => session.scorePercent)), count: sessions.length }; }).filter(item => item.score != null).sort((a, b) => b.score - a.score || b.count - a.count);
+  renderComparisonBars(ui.userComparison, users.map(item => ({ label: item.label, value: item.score, detail: `${Math.round(item.score)}% · ${item.count} attempt${item.count === 1 ? "" : "s"}` })), { maxValue: 100, axisLabel: "100%", legend: "Average score by anonymous user", empty: "No user comparison is available for this view.", listKey: "userComparison", render: () => renderPerformanceLists(scope) });
 }
 
 function mergeQuestionBuckets(scope) {
@@ -375,10 +383,10 @@ function mergeQuestionBuckets(scope) {
 }
 
 function renderQuestionInsights(scope) {
-  const rows = Object.values(mergeQuestionBuckets(scope)).filter(item => item.timesSeen > 0).map(item => ({ ...item, accuracy: item.timesCorrect / item.timesSeen * 100 })).sort((a, b) => a.accuracy - b.accuracy || b.timesSeen - a.timesSeen).slice(0, 20);
-  const visibleRows = rows.slice(0, rowLimits.questions);
-  ui.questions.innerHTML = rows.length ? `${tableControls("questions", rows.length)}<div class="admin-table-scroll ${rowLimits.questions === 20 ? "expanded" : ""}"><table class="admin-table"><thead><tr><th>Question</th><th>Seen</th><th>Wrong</th><th>Accuracy</th></tr></thead><tbody>${visibleRows.map(item => `<tr><td><strong>${escapeHtml(item.test || "Question")} ${escapeHtml(item.number || "")}</strong><br><span class="question-preview" title="${escapeHtml(item.question || "")}">${escapeHtml(shortPreview(item.question))}</span></td><td>${item.timesSeen}</td><td>${item.timesWrong}</td><td>${Math.round(item.accuracy)}%</td></tr>`).join("")}</tbody></table></div>` : `<div class="region-empty">No question-performance data is available for this view.</div>`;
-  bindTableLimit(ui.questions, "questions", () => renderQuestionInsights(scope));
+  const rows = Object.values(mergeQuestionBuckets(scope)).filter(item => item.timesSeen > 0).map(item => ({ ...item, accuracy: item.timesCorrect / item.timesSeen * 100 })).sort((a, b) => a.accuracy - b.accuracy || b.timesSeen - a.timesSeen);
+  const page = listWindow("questions", rows);
+  ui.questions.innerHTML = rows.length ? `${listControls("questions", rows.length)}<div class="admin-table-scroll ${page.state.limit === 20 ? "expanded" : ""}"><table class="admin-table"><thead><tr><th>Question</th><th>Seen</th><th>Wrong</th><th>Accuracy</th></tr></thead><tbody>${page.rows.map(item => `<tr><td><strong>${escapeHtml(item.test || "Question")} ${escapeHtml(item.number || "")}</strong><br><span class="question-preview" title="${escapeHtml(item.question || "")}">${escapeHtml(shortPreview(item.question))}</span></td><td>${item.timesSeen}</td><td>${item.timesWrong}</td><td>${Math.round(item.accuracy)}%</td></tr>`).join("")}</tbody></table></div>` : `<div class="region-empty">No question-performance data is available for this view.</div>`;
+  bindListControls(ui.questions, "questions", () => renderQuestionInsights(scope));
 }
 
 function renderUsersTable() {
@@ -389,28 +397,31 @@ function renderUsersTable() {
     const location = latestDeviceLocation(profile);
     return `<tr><td><strong>${escapeHtml(profile.label)}</strong></td><td>${sessions.length}</td><td>${devices.length}</td><td>${sessions.length ? `${Math.round(average(sessions.map(session=>session.scorePercent)))}%` : "—"}</td><td>${escapeHtml(locationLabel(location))}</td><td>${escapeHtml(latest ? formatDate(latest.date) : "—")}</td><td><button type="button" data-view-profile="${escapeHtml(profile.profileId)}">View</button></td></tr>`;
   });
-  const visibleRows = rows.slice(0, rowLimits.users);
-  ui.users.innerHTML = rows.length ? `${tableControls("users", rows.length)}<div class="admin-table-scroll ${rowLimits.users === 20 ? "expanded" : ""}"><table class="admin-table"><thead><tr><th>Anonymous User</th><th>Attempts</th><th>Devices</th><th>Avg Score</th><th>Latest Region</th><th>Last Quiz</th><th></th></tr></thead><tbody>${visibleRows.join("")}</tbody></table></div>` : `<div class="region-empty">No users have opted in yet.</div>`;
+  const page = listWindow("users", rows);
+  ui.users.innerHTML = rows.length ? `${listControls("users", rows.length)}<div class="admin-table-scroll ${page.state.limit === 20 ? "expanded" : ""}"><table class="admin-table"><thead><tr><th>Anonymous User</th><th>Attempts</th><th>Devices</th><th>Avg Score</th><th>Latest Region</th><th>Last Quiz</th><th></th></tr></thead><tbody>${page.rows.join("")}</tbody></table></div>` : `<div class="region-empty">No users have opted in yet.</div>`;
   ui.users.querySelectorAll("[data-view-profile]").forEach(button => button.addEventListener("click", () => {
     view.profileId = button.dataset.viewProfile;
     ui.userFilter.value = view.profileId;
+    saveAdminUiState();
     renderDashboard();
     scrollTo({ top: 0, behavior: "smooth" });
   }));
-  bindTableLimit(ui.users, "users", renderUsersTable);
+  bindListControls(ui.users, "users", renderUsersTable);
 }
 
 function renderFilters() {
-  const current = ui.userFilter.value || view.profileId;
   ui.userFilter.innerHTML = `<option value="all">All opted-in users</option>${profiles.map(profile => `<option value="${escapeHtml(profile.profileId)}">${escapeHtml(profile.label)}</option>`).join("")}`;
-  ui.userFilter.value = profiles.some(profile => profile.profileId === current) ? current : "all";
+  ui.userFilter.value = profiles.some(profile => profile.profileId === view.profileId) ? view.profileId : "all";
   view.profileId = ui.userFilter.value;
   const categoryOptions = [["all","All"],["test","Test"],["quiz","Quiz"],["study","Study"]];
   const lengthOptions = [["all","All"],["10","10"],["20","20"],["50","50"]];
-  ui.categoryFilter.innerHTML = categoryOptions.map(([key,label]) => `<button type="button" data-category="${key}" class="${view.category===key?"active":""}">${label}</button>`).join("");
-  ui.lengthFilter.innerHTML = lengthOptions.map(([key,label]) => `<button type="button" data-length="${key}" class="${view.length===key?"active":""}">${label}</button>`).join("");
-  ui.categoryFilter.querySelectorAll("[data-category]").forEach(button => button.addEventListener("click", () => { view.category=button.dataset.category; renderDashboard(); }));
-  ui.lengthFilter.querySelectorAll("[data-length]").forEach(button => button.addEventListener("click", () => { view.length=button.dataset.length; renderDashboard(); }));
+  const rangeOptions = [[1,"1 Day"],[7,"1 Week"],[30,"1 Month"],[90,"3 Months"],[180,"6 Months"],[365,"1 Year"],[0,"All Time"]];
+  ui.categoryFilter.innerHTML = categoryOptions.map(([key,label]) => `<option value="${key}">${label}</option>`).join("");
+  ui.lengthFilter.innerHTML = lengthOptions.map(([key,label]) => `<option value="${key}">${label}</option>`).join("");
+  ui.rangeFilter.innerHTML = rangeOptions.map(([key,label]) => `<option value="${key}">${label}</option>`).join("");
+  ui.categoryFilter.value = view.category;
+  ui.lengthFilter.value = view.length;
+  ui.rangeFilter.value = String(view.rangeDays);
 }
 
 function renderDashboard() {
@@ -421,11 +432,12 @@ function renderDashboard() {
   renderStats(scope);
   const userLocations = scope.map(profile => ({ profile, device: latestDeviceLocation(profile) })).filter(item => item.device);
   const deviceLocations = scope.flatMap(profile => (profile.devices || []).filter(device => Number(device.quizCount) > 0));
-  renderHeat(ui.userHeat, userLocations);
-  renderHeat(ui.deviceHeat, deviceLocations);
+  renderHeat(ui.userHeat, userLocations, "userRegions");
+  renderHeat(ui.deviceHeat, deviceLocations, "deviceRegions");
   renderInsights(scope);
   renderQuestionInsights(scope);
   renderUsersTable();
+  saveAdminUiState();
 }
 
 async function loadSnapshot() {
@@ -437,6 +449,10 @@ async function loadSnapshot() {
   ui.dashboard.classList.remove("hidden");
   ui.freshness.textContent = `Updated ${new Date().toLocaleTimeString()} · ${profiles.length} opted-in user${profiles.length === 1 ? "" : "s"}`;
   renderDashboard();
+  if (!restoredInitialScroll) {
+    restoredInitialScroll = true;
+    requestAnimationFrame(() => window.scrollTo({ top: initialScrollY, behavior: "auto" }));
+  }
 }
 
 async function showSignedInDashboard() {
@@ -483,4 +499,16 @@ ui.signOut.addEventListener("click", async () => {
   ui.login.classList.remove("hidden");
   ui.loginStatus.textContent = "Signed out.";
 });
-ui.userFilter.addEventListener("change", () => { view.profileId = ui.userFilter.value; renderDashboard(); });
+function updateView(key, value) {
+  const y = window.scrollY;
+  view[key] = value;
+  saveAdminUiState();
+  renderDashboard();
+  requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "auto" }));
+}
+
+ui.userFilter.addEventListener("change", () => updateView("profileId", ui.userFilter.value));
+ui.categoryFilter.addEventListener("change", () => updateView("category", ui.categoryFilter.value));
+ui.lengthFilter.addEventListener("change", () => updateView("length", ui.lengthFilter.value));
+ui.rangeFilter.addEventListener("change", () => updateView("rangeDays", Number(ui.rangeFilter.value)));
+window.addEventListener("pagehide", saveAdminUiState);
