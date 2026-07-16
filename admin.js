@@ -221,10 +221,25 @@ function completedScoreHistory(sessions, days) {
   }).sort((a, b) => a.time - b.time);
 }
 
+function scoreImprovementData(completedRows) {
+  const baselineByProfile = new Map(), latestByProfile = new Map(), events = [];
+  completedRows.forEach(row => {
+    const profileId = row.session.__profileId || "profile", baseline = baselineByProfile.get(profileId);
+    if (!baseline) {
+      baselineByProfile.set(profileId, row);
+      return;
+    }
+    const event = { session: row.session, time: row.time, value: row.pct - baseline.pct };
+    events.push(event);
+    latestByProfile.set(profileId, event);
+  });
+  return { events, overall: average([...latestByProfile.values()].map(event => event.value)) };
+}
+
 const GRAPH_METRICS = {
   averageScore: { label: "Average User Score", description: "Average score per user in each shared UTC time bucket", chart: "line", unit: "%" },
   currentPlayers: { label: "Current Players", description: "Distinct active users in each shared UTC time bucket", chart: "bar", unit: "" },
-  averageImprovement: { label: "Average Score Improvement", description: "Average score change from each user's previous completed attempt", chart: "line", unit: " pts" },
+  averageImprovement: { label: "Average Score Improvement", description: "Score change from each user's first completed score in the selected timeframe", chart: "line", unit: " pts" },
   scoreHistory: { label: "Score History", description: "Every completed score in chronological order", chart: "line", unit: "%" }
 };
 
@@ -259,8 +274,8 @@ function nextUtcBucket(time, config) {
 
 function buildGraphMetric(sessions) {
   const completed = completedScoreHistory(sessions, view.rangeDays), metric = GRAPH_METRICS[view.metric] || GRAPH_METRICS.averageScore;
-  if (!completed.length) return { metric, rows: [], config: graphBucketConfig(view.rangeDays), history: view.metric === "scoreHistory" };
-  if (view.metric === "scoreHistory") return { metric, rows: completed.map(row => ({ ...row, value: row.pct, detail: `${Math.round(row.pct)}%` })), config: graphBucketConfig(view.rangeDays, completed), history: true };
+  if (!completed.length) return { metric, rows: [], config: graphBucketConfig(view.rangeDays), history: view.metric === "scoreHistory", overall: null };
+  if (view.metric === "scoreHistory") return { metric, rows: completed.map(row => ({ ...row, value: row.pct, detail: `${Math.round(row.pct)}%` })), config: graphBucketConfig(view.rangeDays, completed), history: true, overall: null };
   const config = graphBucketConfig(view.rangeDays, completed), buckets = new Map();
   const bucketFor = time => {
     const key = utcBucketStart(time, config);
@@ -274,14 +289,8 @@ function buildGraphMetric(sessions) {
     scores.push(row.pct);
     bucket.profiles.set(profileId, scores);
   });
-  if (view.metric === "averageImprovement") {
-    const byProfile = new Map();
-    completed.forEach(row => {
-      const profileId = row.session.__profileId || "profile", previous = byProfile.get(profileId);
-      if (previous) bucketFor(row.time).improvements.push(row.pct - previous.pct);
-      byProfile.set(profileId, row);
-    });
-  }
+  const improvement = scoreImprovementData(completed), improvementEvents = improvement.events;
+  if (view.metric === "averageImprovement") improvementEvents.forEach(event => bucketFor(event.time).improvements.push(event.value));
   let rows = [...buckets.values()].sort((a, b) => a.time - b.time).map(bucket => {
     if (view.metric === "currentPlayers") return { time: bucket.time, value: bucket.players.size, detail: `${bucket.players.size} active user${bucket.players.size === 1 ? "" : "s"}` };
     if (view.metric === "averageImprovement") return { time: bucket.time, value: average(bucket.improvements), detail: `${bucket.improvements.length} score change${bucket.improvements.length === 1 ? "" : "s"}` };
@@ -293,7 +302,7 @@ function buildGraphMetric(sessions) {
     rows = [];
     for (let time = first, guard = 0; time <= last && guard < 1000; time = nextUtcBucket(time, config), guard++) rows.push(indexed.get(time) || { time, value: 0, detail: "0 active users" });
   }
-  return { metric, rows, config, history: false };
+  return { metric, rows, config, history: false, overall: improvement.overall };
 }
 
 function graphAxis(rows, metricKey) {
@@ -413,12 +422,13 @@ function renderTrend(sessions) {
   const xTicks = scoreHistoryTicks(rows, view.rangeDays, left, plotWidth).map(tick => `<text class="graph-axis graph-x-axis" text-anchor="${tick.anchor}" x="${(metric.chart === "bar" ? coords[tick.rowIndex].x : tick.x).toFixed(1)}" y="${height-12}">${escapeHtml(tick.label)}</text>`).join("");
   const bands = view.metric === "averageScore" || view.metric === "scoreHistory" ? `<rect class="graph-band-high" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-mid" x="${left}" y="${top+plotHeight*.25}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-low" x="${left}" y="${top+plotHeight*.5}" width="${plotWidth}" height="${plotHeight*.5}"></rect>` : "";
   const bucketNote = dataset.history ? `${rows.length} completed score${rows.length === 1 ? "" : "s"}` : config.label;
-  ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="admin-graph-heading"><strong>${escapeHtml(metric.label)}</strong><span>${escapeHtml(metric.description)}</span></div><div class="chart-legend" aria-label="Chart legend"><span><i class="${metric.chart === "bar" ? "legend-bar" : "legend-line"}"></i>${escapeHtml(metric.label)}</span><span><i class="legend-point"></i>${escapeHtml(bucketNote)}</span><span class="time-zone-label">Displayed in ${escapeHtml(ADMIN_TIME_ZONE)}</span></div><svg class="admin-score-graph score-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric.label)} displayed in ${escapeHtml(ADMIN_TIME_ZONE)}"><rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="#fffdf6"></rect>${bands}${grid}<line class="graph-grid" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"></line><line class="graph-grid" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"></line>${path ? `<path class="graph-line" d="${path}"></path>` : ""}${marks}${xTicks}</svg></div>`;
+  const overallNote = view.metric === "averageImprovement" && dataset.overall != null ? `<span><i class="legend-point"></i>Overall ${dataset.overall >= 0 ? "+" : ""}${Math.round(dataset.overall)} pts</span>` : "";
+  ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="admin-graph-heading"><strong>${escapeHtml(metric.label)}</strong><span>${escapeHtml(metric.description)}</span></div><div class="chart-legend" aria-label="Chart legend"><span><i class="${metric.chart === "bar" ? "legend-bar" : "legend-line"}"></i>${escapeHtml(metric.label)}</span><span><i class="legend-point"></i>${escapeHtml(bucketNote)}</span>${overallNote}<span class="time-zone-label">Displayed in ${escapeHtml(ADMIN_TIME_ZONE)}</span></div><svg class="admin-score-graph score-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric.label)} displayed in ${escapeHtml(ADMIN_TIME_ZONE)}"><rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="#fffdf6"></rect>${bands}${grid}<line class="graph-grid" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"></line><line class="graph-grid" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"></line>${path ? `<path class="graph-line" d="${path}"></path>` : ""}${marks}${xTicks}</svg></div>`;
 }
 
 function renderHistory(sessions) {
   const recent = sessions.slice().reverse(), page = listWindow("history", recent);
-  ui.history.innerHTML = recent.length ? `<h3>Recent Score History</h3>${listControls("history", recent.length)}<ol class="admin-history-list" start="${page.start + 1}">${page.rows.map(session => `<li>${escapeHtml(formatDate(session.date))} — ${escapeHtml(categoryOf(session))} ${lengthOf(session)}: <strong>${escapeHtml(session.scorePercent)}%</strong>, ${escapeHtml(formatDuration(session.durationSeconds))}</li>`).join("")}</ol>` : "";
+  ui.history.innerHTML = recent.length ? `<h3>Recent Score History</h3>${listControls("history", recent.length)}<ol class="admin-history-list" start="${page.start + 1}">${page.rows.map(session => `<li><div class="admin-history-entry"><code class="admin-history-user-id" title="Anonymous user ID: ${escapeHtml(session.__profileId || "Unknown")}">${escapeHtml(session.__profileId || "Unknown")}</code><span>${escapeHtml(formatDate(session.date))} — ${escapeHtml(categoryOf(session))} ${lengthOf(session)}: <strong>${escapeHtml(session.scorePercent)}%</strong>, ${escapeHtml(formatDuration(session.durationSeconds))}</span></div></li>`).join("")}</ol>` : "";
   bindListControls(ui.history, "history", () => renderHistory(sessions));
 }
 
@@ -427,22 +437,16 @@ function renderInsights(scope) {
   const latestTimes = scope.map(profile => Math.max(0, ...(profile.stats?.sessions || []).map(session => new Date(session.date).getTime()).filter(Number.isFinite)));
   const active7 = latestTimes.filter(time => time >= now - 7 * 86400000).length;
   const active30 = latestTimes.filter(time => time >= now - 30 * 86400000).length;
-  const sessions = scope.flatMap(profile => filteredSessions(profile.stats));
+  const sessions = scope.flatMap(profile => filteredSessions(profile.stats).map(session => ({ ...session, __profileId: profile.profileId, __profileLabel: profile.label })));
   const completed = sessions.filter(session => Number(session.answered) > 0 && Number(session.answered) === Number(session.totalQuestions)).length;
   const repeatUsers = scope.filter(profile => filteredSessions(profile.stats).length >= 2).length;
-  const improvements = scope.map(profile => {
-    const playerSessions = filteredSessions(profile.stats);
-    if (playerSessions.length < 2) return null;
-    const first = average(playerSessions.slice(0, 3).map(session => session.scorePercent));
-    const last = average(playerSessions.slice(-3).map(session => session.scorePercent));
-    return first == null || last == null ? null : last - first;
-  }).filter(value => value != null);
+  const improvement = scoreImprovementData(completedScoreHistory(sessions, view.rangeDays)).overall;
   ui.insights.innerHTML = [
     kpi(active7, "Active Users · 7 Days"),
     kpi(active30, "Active Users · 30 Days"),
     kpi(sessions.length ? `${Math.round(completed / sessions.length * 100)}%` : "—", "Completion Rate"),
     kpi(scope.length ? `${Math.round(repeatUsers / scope.length * 100)}%` : "—", "Repeat User Rate"),
-    kpi(improvements.length ? `${average(improvements) >= 0 ? "+" : ""}${Math.round(average(improvements))} pts` : "—", "Average Improvement")
+    kpi(improvement != null ? `${improvement >= 0 ? "+" : ""}${Math.round(improvement)} pts` : "—", "Average Score Improvement")
   ].join("");
   renderPerformanceLists(scope);
 }

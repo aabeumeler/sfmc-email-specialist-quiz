@@ -14,6 +14,7 @@ const elements = {
   hidePairing: document.getElementById("hidePairingBtn"),
   analytics: document.getElementById("analyticsConsentToggle"),
   analyticsLabel: document.querySelector(".switch-label"),
+  anonymousProfileId: document.getElementById("anonymousProfileId"),
   deleteAnalyticsHistory: document.getElementById("deleteAnalyticsHistory")
 };
 
@@ -139,6 +140,12 @@ function renderControls() {
   elements.showPairing?.classList.toggle("hidden", !cloudState);
   if (elements.syncNow) elements.syncNow.disabled = syncing;
   if (elements.showPairing) elements.showPairing.disabled = syncing;
+  if (elements.anonymousProfileId) {
+    const profileId = String(cloudState?.profileId || "").trim();
+    elements.anonymousProfileId.textContent = profileId;
+    elements.anonymousProfileId.title = profileId ? `Anonymous user ID: ${profileId}` : "";
+    elements.anonymousProfileId.classList.toggle("hidden", !profileId);
+  }
   updateConsentControl(Boolean(cloudState && cloudState.analyticsConsent));
   if (!configured) {
     setStatus("Cloud sync is awaiting its one-time secure service setup.");
