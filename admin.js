@@ -18,6 +18,7 @@ const ui = {
   categoryFilter: document.getElementById("adminCategoryFilter"),
   lengthFilter: document.getElementById("adminLengthFilter"),
   rangeFilter: document.getElementById("adminRangeFilter"),
+  metricFilter: document.getElementById("adminMetricFilter"),
   audience: document.getElementById("audienceSummary"),
   stats: document.getElementById("adminStatsGrid"),
   statsNote: document.getElementById("adminStatsNote"),
@@ -47,7 +48,8 @@ const view = {
   profileId: String(savedUiState.profileId || "all"),
   category: ["all", "test", "quiz", "study"].includes(savedUiState.category) ? savedUiState.category : "all",
   length: ["all", "10", "20", "50"].includes(String(savedUiState.length)) ? String(savedUiState.length) : "all",
-  rangeDays: [0, 1, 7, 30, 90, 180, 365].includes(Number(savedUiState.rangeDays)) ? Number(savedUiState.rangeDays) : 7
+  rangeDays: [0, 1, 7, 30, 90, 180, 365].includes(Number(savedUiState.rangeDays)) ? Number(savedUiState.rangeDays) : 7,
+  metric: ["averageScore", "currentPlayers", "averageImprovement", "scoreHistory"].includes(savedUiState.metric) ? savedUiState.metric : "averageScore"
 };
 const listStates = savedUiState.lists && typeof savedUiState.lists === "object" ? savedUiState.lists : {};
 
@@ -219,6 +221,92 @@ function completedScoreHistory(sessions, days) {
   }).sort((a, b) => a.time - b.time);
 }
 
+const GRAPH_METRICS = {
+  averageScore: { label: "Average User Score", description: "Average score per user in each shared UTC time bucket", chart: "line", unit: "%" },
+  currentPlayers: { label: "Current Players", description: "Distinct active users in each shared UTC time bucket", chart: "bar", unit: "" },
+  averageImprovement: { label: "Average Score Improvement", description: "Average score change from each user's previous completed attempt", chart: "line", unit: " pts" },
+  scoreHistory: { label: "Score History", description: "Every completed score in chronological order", chart: "line", unit: "%" }
+};
+
+function graphBucketConfig(days, rows = []) {
+  const spanDays = Number(days) > 0 ? Number(days) : Math.max(1, rows.length > 1 ? (rows[rows.length - 1].time - rows[0].time) / 86400000 : 1);
+  if (spanDays <= 2) return { kind: "hour", hours: 3, label: "3-hour UTC buckets" };
+  if (spanDays <= 31) return { kind: "day", label: "Daily UTC buckets" };
+  if (spanDays <= 180) return { kind: "week", label: "Weekly UTC buckets" };
+  if (spanDays <= 730) return { kind: "month", label: "Monthly UTC buckets" };
+  return { kind: "quarter", label: "Quarterly UTC buckets" };
+}
+
+function utcBucketStart(time, config) {
+  const date = new Date(time), dayMs = 86400000;
+  if (config.kind === "hour") return Math.floor(time / (config.hours * 3600000)) * config.hours * 3600000;
+  if (config.kind === "day") return Math.floor(time / dayMs) * dayMs;
+  if (config.kind === "week") {
+    const day = Math.floor(time / dayMs), mondayOffset = (day + 3) % 7;
+    return (day - mondayOffset) * dayMs;
+  }
+  if (config.kind === "month") return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  return Date.UTC(date.getUTCFullYear(), Math.floor(date.getUTCMonth() / 3) * 3, 1);
+}
+
+function nextUtcBucket(time, config) {
+  if (config.kind === "hour") return time + config.hours * 3600000;
+  if (config.kind === "day") return time + 86400000;
+  if (config.kind === "week") return time + 7 * 86400000;
+  const date = new Date(time), months = config.kind === "quarter" ? 3 : 1;
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1);
+}
+
+function buildGraphMetric(sessions) {
+  const completed = completedScoreHistory(sessions, view.rangeDays), metric = GRAPH_METRICS[view.metric] || GRAPH_METRICS.averageScore;
+  if (!completed.length) return { metric, rows: [], config: graphBucketConfig(view.rangeDays), history: view.metric === "scoreHistory" };
+  if (view.metric === "scoreHistory") return { metric, rows: completed.map(row => ({ ...row, value: row.pct, detail: `${Math.round(row.pct)}%` })), config: graphBucketConfig(view.rangeDays, completed), history: true };
+  const config = graphBucketConfig(view.rangeDays, completed), buckets = new Map();
+  const bucketFor = time => {
+    const key = utcBucketStart(time, config);
+    if (!buckets.has(key)) buckets.set(key, { time: key, profiles: new Map(), players: new Set(), improvements: [] });
+    return buckets.get(key);
+  };
+  completed.forEach(row => {
+    const profileId = row.session.__profileId || "profile", bucket = bucketFor(row.time);
+    bucket.players.add(profileId);
+    const scores = bucket.profiles.get(profileId) || [];
+    scores.push(row.pct);
+    bucket.profiles.set(profileId, scores);
+  });
+  if (view.metric === "averageImprovement") {
+    const byProfile = new Map();
+    completed.forEach(row => {
+      const profileId = row.session.__profileId || "profile", previous = byProfile.get(profileId);
+      if (previous) bucketFor(row.time).improvements.push(row.pct - previous.pct);
+      byProfile.set(profileId, row);
+    });
+  }
+  let rows = [...buckets.values()].sort((a, b) => a.time - b.time).map(bucket => {
+    if (view.metric === "currentPlayers") return { time: bucket.time, value: bucket.players.size, detail: `${bucket.players.size} active user${bucket.players.size === 1 ? "" : "s"}` };
+    if (view.metric === "averageImprovement") return { time: bucket.time, value: average(bucket.improvements), detail: `${bucket.improvements.length} score change${bucket.improvements.length === 1 ? "" : "s"}` };
+    const userAverages = [...bucket.profiles.values()].map(scores => average(scores));
+    return { time: bucket.time, value: average(userAverages), detail: `${userAverages.length} user${userAverages.length === 1 ? "" : "s"}` };
+  }).filter(row => row.value != null);
+  if (view.metric === "currentPlayers" && Number(view.rangeDays) > 0) {
+    const now = Date.now(), first = utcBucketStart(now - Number(view.rangeDays) * 86400000, config), last = utcBucketStart(now, config), indexed = new Map(rows.map(row => [row.time, row]));
+    rows = [];
+    for (let time = first, guard = 0; time <= last && guard < 1000; time = nextUtcBucket(time, config), guard++) rows.push(indexed.get(time) || { time, value: 0, detail: "0 active users" });
+  }
+  return { metric, rows, config, history: false };
+}
+
+function graphAxis(rows, metricKey) {
+  const values = rows.map(row => Number(row.value)).filter(Number.isFinite);
+  if (metricKey === "averageScore" || metricKey === "scoreHistory") return { min: 0, max: 100, ticks: [0,25,50,75,100], suffix: "%" };
+  if (metricKey === "currentPlayers") {
+    const max = Math.max(1, ...values), step = Math.max(1, Math.ceil(max / 4)), ceiling = Math.max(step, Math.ceil(max / step) * step);
+    return { min: 0, max: ceiling, ticks: [...new Set([0, step, step * 2, step * 3, ceiling].filter(value => value <= ceiling))], suffix: "" };
+  }
+  const extent = Math.max(5, ...values.map(value => Math.abs(value))), step = Math.max(1, Math.ceil(extent / 2 / 5) * 5), bound = Math.ceil(extent / step) * step;
+  return { min: -bound, max: bound, ticks: [-bound, -bound / 2, 0, bound / 2, bound], suffix: "" };
+}
+
 function scoreHistoryTicks(rows, days, left, plotWidth) {
   const count = Math.min(6, rows.length);
   if (!count) return [];
@@ -228,7 +316,7 @@ function scoreHistoryTicks(rows, days, left, plotWidth) {
     const date = new Date(rows[rowIndex].time);
     const label = effectiveDays <= 1 ? date.toLocaleTimeString(undefined, { hour: "numeric", timeZone: ADMIN_TIME_ZONE }) : effectiveDays <= 14 ? date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", timeZone: ADMIN_TIME_ZONE }) : effectiveDays <= 365 ? date.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: ADMIN_TIME_ZONE }) : date.toLocaleDateString(undefined, { month: "short", year: "2-digit", timeZone: ADMIN_TIME_ZONE });
     const ratio = rows.length === 1 ? .5 : rowIndex / (rows.length - 1);
-    return { x: left + plotWidth * ratio, label, anchor: rows.length === 1 ? "middle" : index === 0 ? "start" : index === indexes.length - 1 ? "end" : "middle" };
+    return { x: left + plotWidth * ratio, rowIndex, label, anchor: rows.length === 1 ? "middle" : index === 0 ? "start" : index === indexes.length - 1 ? "end" : "middle" };
   });
 }
 
@@ -299,32 +387,33 @@ function renderStats(scope) {
     `<div class="stats-cell"><b>${formatDuration(studySeconds)}</b><span>Study Time</span></div>`,
     `<div class="stats-cell"><b>${lastScore == null ? "—" : `${Math.round(lastScore)}%`}</b><span>Last Score</span></div>`,
     `<div class="stats-cell"><b>${averageScore == null ? "—" : `${Math.round(averageScore)}%`}</b><span>Average Score</span></div>`,
-    `<div class="stats-cell"><b>${practice == null ? "0" : Math.round(practice)}</b><span>Practice Streak</span></div>`,
+    `<div class="stats-cell"><b>${practice == null ? "0" : Math.round(practice)}</b><span>Practice Day Streak</span></div>`,
     `<div class="stats-cell"><b>${current == null ? "0" : Math.round(current)}</b><span>Current Streak</span></div>`,
     `<div class="stats-cell"><b>${Math.round(best)}</b><span>Best Streak</span></div>`
   ].join("");
   ui.statsNote.textContent = single
     ? "This view matches the anonymous user's in-app statistics. Filters apply to study time and score history; streaks span all modes."
-    : "Aggregated view: Last Score, Practice Streak, and Current Streak are averages across users; Best Streak is the highest. Other totals combine all selected users.";
+    : "Aggregated view: Last Score, Practice Day Streak, and Current Streak are averages across users; Best Streak is the highest. Other totals combine all selected users.";
   renderTrend(sessions);
   renderHistory(sessions);
 }
 
 function renderTrend(sessions) {
-  const rows = completedScoreHistory(sessions, view.rangeDays);
+  const dataset = buildGraphMetric(sessions), { rows, metric, config } = dataset;
   if (!rows.length) {
-    ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="admin-graph-heading"><strong>Score History</strong><span>Every completed score in the selected timeframe</span></div><div class="region-empty">No completed scores are available for this timeframe.</div></div>`;
+    ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="admin-graph-heading"><strong>${escapeHtml(metric.label)}</strong><span>${escapeHtml(metric.description)}</span></div><div class="region-empty">No completed scores are available for this metric and timeframe.</div></div>`;
     return;
   }
   const width = 720, height = 260, left = 42, right = 16, top = 16, bottom = 46;
-  const plotWidth = width - left - right, plotHeight = height - top - bottom;
-  const coords = rows.map((row, index) => ({ ...row, x: rows.length === 1 ? left + plotWidth / 2 : left + index * plotWidth / (rows.length - 1), y: top + (1 - row.pct / 100) * plotHeight }));
-  const path = smoothGraphPath(coords);
-  const circles = coords.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="graph-point"><title>${escapeHtml(`${Math.round(point.pct)}% · ${point.session.__profileLabel || "Anonymous user"} · ${formatDate(point.session.date)}`)}</title></circle>`).join("");
-  const yValues = coords.length > 8 ? [0,25,50,75,100] : [0,50,100];
-  const grid = yValues.map(value => { const y=top+(1-value/100)*plotHeight; return `<line class="graph-grid" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"></line><text class="graph-axis" x="6" y="${y+4}">${value}%</text>`; }).join("");
-  const xTicks = scoreHistoryTicks(rows, view.rangeDays, left, plotWidth).map(tick => `<text class="graph-axis graph-x-axis" text-anchor="${tick.anchor}" x="${tick.x.toFixed(1)}" y="${height-12}">${escapeHtml(tick.label)}</text>`).join("");
-  ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="admin-graph-heading"><strong>Score History</strong><span>Every completed score in chronological order</span></div><div class="chart-legend" aria-label="Chart legend"><span><i class="legend-line"></i>Score History</span><span><i class="legend-point"></i>${rows.length} completed score${rows.length === 1 ? "" : "s"}</span><span class="time-zone-label">Displayed in ${escapeHtml(ADMIN_TIME_ZONE)}</span></div><svg class="admin-score-graph score-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="Score history displayed in ${escapeHtml(ADMIN_TIME_ZONE)}"><rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="#fffdf6"></rect><rect class="graph-band-high" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-mid" x="${left}" y="${top+plotHeight*.25}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-low" x="${left}" y="${top+plotHeight*.5}" width="${plotWidth}" height="${plotHeight*.5}"></rect>${grid}<line class="graph-grid" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"></line><line class="graph-grid" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"></line><path class="graph-line" d="${path}"></path>${circles}${xTicks}</svg></div>`;
+  const plotWidth = width - left - right, plotHeight = height - top - bottom, axis = graphAxis(rows, view.metric), range = Math.max(.001, axis.max - axis.min);
+  const coords = rows.map((row, index) => ({ ...row, x: metric.chart === "bar" ? left + (index + .5) * plotWidth / rows.length : rows.length === 1 ? left + plotWidth / 2 : left + index * plotWidth / (rows.length - 1), y: top + (axis.max - row.value) / range * plotHeight }));
+  const path = metric.chart === "line" ? smoothGraphPath(coords) : "";
+  const marks = metric.chart === "bar" ? coords.map((point, index) => { const slot = plotWidth / Math.max(1, coords.length), barWidth = Math.max(2, Math.min(34, slot * .72)), baseline = top + (axis.max / range) * plotHeight, y = Math.min(point.y, baseline), barHeight = Math.max(1, Math.abs(baseline - point.y)); return `<rect class="graph-bar" x="${(point.x-barWidth/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}"><title>${escapeHtml(`${point.detail} · ${formatDate(point.time)}`)}</title></rect>`; }).join("") : coords.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="graph-point"><title>${escapeHtml(`${Number(point.value).toFixed(view.metric === "currentPlayers" ? 0 : 1)}${metric.unit} · ${point.session?.__profileLabel || point.detail} · ${formatDate(point.session?.date || point.time)}`)}</title></circle>`).join("");
+  const grid = axis.ticks.map(value => { const y=top+(axis.max-value)/range*plotHeight; return `<line class="graph-grid" x1="${left}" y1="${y}" x2="${width-right}" y2="${y}"></line><text class="graph-axis" x="6" y="${y+4}">${Number.isInteger(value)?value:value.toFixed(1)}${axis.suffix}</text>`; }).join("");
+  const xTicks = scoreHistoryTicks(rows, view.rangeDays, left, plotWidth).map(tick => `<text class="graph-axis graph-x-axis" text-anchor="${tick.anchor}" x="${(metric.chart === "bar" ? coords[tick.rowIndex].x : tick.x).toFixed(1)}" y="${height-12}">${escapeHtml(tick.label)}</text>`).join("");
+  const bands = view.metric === "averageScore" || view.metric === "scoreHistory" ? `<rect class="graph-band-high" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-mid" x="${left}" y="${top+plotHeight*.25}" width="${plotWidth}" height="${plotHeight*.25}"></rect><rect class="graph-band-low" x="${left}" y="${top+plotHeight*.5}" width="${plotWidth}" height="${plotHeight*.5}"></rect>` : "";
+  const bucketNote = dataset.history ? `${rows.length} completed score${rows.length === 1 ? "" : "s"}` : config.label;
+  ui.trend.innerHTML = `<div class="graph-card admin-graph-card"><div class="admin-graph-heading"><strong>${escapeHtml(metric.label)}</strong><span>${escapeHtml(metric.description)}</span></div><div class="chart-legend" aria-label="Chart legend"><span><i class="${metric.chart === "bar" ? "legend-bar" : "legend-line"}"></i>${escapeHtml(metric.label)}</span><span><i class="legend-point"></i>${escapeHtml(bucketNote)}</span><span class="time-zone-label">Displayed in ${escapeHtml(ADMIN_TIME_ZONE)}</span></div><svg class="admin-score-graph score-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric.label)} displayed in ${escapeHtml(ADMIN_TIME_ZONE)}"><rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="#fffdf6"></rect>${bands}${grid}<line class="graph-grid" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"></line><line class="graph-grid" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"></line>${path ? `<path class="graph-line" d="${path}"></path>` : ""}${marks}${xTicks}</svg></div>`;
 }
 
 function renderHistory(sessions) {
@@ -366,7 +455,7 @@ function renderPerformanceLists(scope) {
   renderComparisonBars(ui.categories, categories.filter(item => item.score != null).map(item => ({ label: item.label, value: item.score, detail: `${Math.round(item.score)}% · ${item.count} attempt${item.count === 1 ? "" : "s"}` })), { maxValue: 100, axisLabel: "100%", legend: "Average score and attempt count", empty: "No category performance is available for this view." });
   const devices = scope.flatMap(profile => (profile.devices || []).filter(device => Number(device.quizCount) > 0));
   const types = ["mobile", "tablet", "desktop", "unknown"].map(type => ({ type, count: devices.filter(device => String(device.deviceClass || "unknown") === type).length })).filter(item => item.count);
-  renderComparisonBars(ui.deviceMix, types.map(item => ({ label: item.type, value: item.count, detail: String(item.count) })), { legend: "Quiz-playing devices", empty: "No quiz-playing devices in this view." });
+  renderComparisonBars(ui.deviceMix, types.map(item => ({ label: item.type, value: item.count, detail: String(item.count) })), { legend: "Devices", empty: "No devices are available in this view." });
   const users = scope.map(profile => { const sessions = filteredSessions(profile.stats); return { label: profile.label, score: average(sessions.map(session => session.scorePercent)), count: sessions.length }; }).filter(item => item.score != null).sort((a, b) => b.score - a.score || b.count - a.count);
   renderComparisonBars(ui.userComparison, users.map(item => ({ label: item.label, value: item.score, detail: `${Math.round(item.score)}% · ${item.count} attempt${item.count === 1 ? "" : "s"}` })), { maxValue: 100, axisLabel: "100%", legend: "Average score by anonymous user", empty: "No user comparison is available for this view.", listKey: "userComparison", render: () => renderPerformanceLists(scope) });
 }
@@ -416,12 +505,15 @@ function renderFilters() {
   const categoryOptions = [["all","All"],["test","Test"],["quiz","Quiz"],["study","Study"]];
   const lengthOptions = [["all","All"],["10","10"],["20","20"],["50","50"]];
   const rangeOptions = [[1,"1 Day"],[7,"1 Week"],[30,"1 Month"],[90,"3 Months"],[180,"6 Months"],[365,"1 Year"],[0,"All Time"]];
+  const metricOptions = Object.entries(GRAPH_METRICS);
   ui.categoryFilter.innerHTML = categoryOptions.map(([key,label]) => `<option value="${key}">${label}</option>`).join("");
   ui.lengthFilter.innerHTML = lengthOptions.map(([key,label]) => `<option value="${key}">${label}</option>`).join("");
   ui.rangeFilter.innerHTML = rangeOptions.map(([key,label]) => `<option value="${key}">${label}</option>`).join("");
+  ui.metricFilter.innerHTML = metricOptions.map(([key,item]) => `<option value="${key}">${escapeHtml(item.label)}</option>`).join("");
   ui.categoryFilter.value = view.category;
   ui.lengthFilter.value = view.length;
   ui.rangeFilter.value = String(view.rangeDays);
+  ui.metricFilter.value = view.metric;
 }
 
 function renderDashboard() {
@@ -511,4 +603,5 @@ ui.userFilter.addEventListener("change", () => updateView("profileId", ui.userFi
 ui.categoryFilter.addEventListener("change", () => updateView("category", ui.categoryFilter.value));
 ui.lengthFilter.addEventListener("change", () => updateView("length", ui.lengthFilter.value));
 ui.rangeFilter.addEventListener("change", () => updateView("rangeDays", Number(ui.rangeFilter.value)));
+ui.metricFilter.addEventListener("change", () => updateView("metric", ui.metricFilter.value));
 window.addEventListener("pagehide", saveAdminUiState);
