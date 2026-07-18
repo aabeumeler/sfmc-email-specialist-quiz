@@ -1,6 +1,7 @@
 const CONFIG = window.SFMC_SYNC_CONFIG || {};
 const CLOUD_STATE_KEY = "sfmcCloudSyncState_v1";
 const PLAYER_AUTH_KEY = "sfmc-player-auth-v1";
+const QUESTION_BANK_CHANGES_KEY = "sfmcQuestionBankChanges_v1";
 const SUPABASE_MODULE = CONFIG.supabaseModule || "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.2/+esm";
 
 const elements = {
@@ -53,6 +54,20 @@ function readCloudState() {
 function saveCloudState() {
   if (!cloudState) return;
   localStorage.setItem(CLOUD_STATE_KEY, JSON.stringify(cloudState));
+}
+
+function readCachedQuestionBankChanges() {
+  try {
+    const changes = JSON.parse(localStorage.getItem(QUESTION_BANK_CHANGES_KEY) || "[]");
+    return Array.isArray(changes) ? changes : [];
+  } catch (error) {
+    console.warn("Shared question-bank changes could not be read.", error);
+    return [];
+  }
+}
+
+function applyQuestionBankChanges(changes) {
+  bridge.applyQuestionBankChanges?.(Array.isArray(changes) ? changes : []);
 }
 
 function bytesToBase64Url(bytes) {
@@ -215,6 +230,21 @@ async function rpc(name, args = {}) {
   const result = await client.rpc(name, args);
   if (result.error) throw result.error;
   return result.data;
+}
+
+async function refreshQuestionBank() {
+  try {
+    const changes = await rpc("get_quiz_question_bank_changes");
+    if (!Array.isArray(changes)) return;
+    try {
+      localStorage.setItem(QUESTION_BANK_CHANGES_KEY, JSON.stringify(changes));
+    } catch (cacheError) {
+      console.warn("Shared question-bank changes could not be cached in this browser.", cacheError);
+    }
+    applyQuestionBankChanges(changes);
+  } catch (error) {
+    console.warn("The latest shared question-bank changes could not be loaded. The cached bank remains available.", error);
+  }
 }
 
 function certificationFromStatus(status) {
@@ -603,10 +633,16 @@ window.addEventListener("sfmc:stats-reset", async () => {
 });
 
 document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && configured) refreshQuestionBank();
   if (!document.hidden && cloudState) scheduleSync(150);
 });
 
+applyQuestionBankChanges(readCachedQuestionBankChanges());
 renderControls();
+if (configured) await refreshQuestionBank();
 if (cloudState && configured) await syncNow({ quiet: true });
 showAnalyticsPromptIfNeeded();
-setInterval(() => { if (cloudState && !document.hidden) syncNow({ quiet: true }); }, 2 * 60 * 1000);
+setInterval(() => {
+  if (configured && !document.hidden) refreshQuestionBank();
+  if (cloudState && !document.hidden) syncNow({ quiet: true });
+}, 2 * 60 * 1000);

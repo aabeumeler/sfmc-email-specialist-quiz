@@ -31,12 +31,26 @@ const ui = {
   deviceMix: document.getElementById("deviceMix"),
   userComparison: document.getElementById("userComparison"),
   questions: document.getElementById("questionInsights"),
-  users: document.getElementById("adminUsersTable")
+  users: document.getElementById("adminUsersTable"),
+  addQuestion: document.getElementById("addQuestionBtn"),
+  questionBankStatus: document.getElementById("questionBankStatus"),
+  questionPanelBackdrop: document.getElementById("questionPanelBackdrop"),
+  questionPanelTitle: document.getElementById("questionPanelTitle"),
+  questionPanelContent: document.getElementById("questionPanelContent"),
+  questionPanelClose: document.getElementById("questionPanelClose"),
+  questionConfirmBackdrop: document.getElementById("questionConfirmBackdrop"),
+  questionConfirmTitle: document.getElementById("questionConfirmTitle"),
+  questionConfirmMessage: document.getElementById("questionConfirmMessage"),
+  questionConfirmCancel: document.getElementById("questionConfirmCancel"),
+  questionConfirmAction: document.getElementById("questionConfirmAction")
 };
 
 const configured = Boolean(/^https:\/\//i.test(String(CONFIG.supabaseUrl || "")) && String(CONFIG.supabasePublishableKey || "").trim());
 let supabase = null;
 let profiles = [];
+let baseQuestionBank = [];
+let questionBank = [];
+let pendingConfirmedAction = null;
 const ADMIN_UI_STATE_KEY = "sfmc-admin-ui-v2";
 function readAdminUiState() {
   try { return JSON.parse(sessionStorage.getItem(ADMIN_UI_STATE_KEY) || "{}"); } catch (error) { return {}; }
@@ -92,6 +106,31 @@ function anonymousPlayerId(value) {
   let hash = 2166136261;
   for (let index = 0; index < source.length; index++) hash = Math.imul(hash ^ source.charCodeAt(index), 16777619);
   return `Player-${(hash >>> 0).toString(16).toUpperCase().padStart(8, "0").slice(-6)}`;
+}
+
+function questionId(question) {
+  return String(question?.id || `${question?.test || "Practice Test"}|${question?.number || ""}|${question?.question || ""}`).trim();
+}
+
+function applyQuestionBankChanges(changes) {
+  const bank = new Map(baseQuestionBank.map(question => [questionId(question), question]));
+  (Array.isArray(changes) ? changes : []).forEach(change => {
+    const id = String(change?.id || change?.question?.id || "").trim();
+    if (!id) return;
+    if (change.deleted) bank.delete(id);
+    else if (change.question && typeof change.question === "object") bank.set(id, { ...change.question, id });
+  });
+  questionBank = [...bank.values()];
+}
+
+function questionFromBank(id) {
+  return questionBank.find(question => questionId(question) === String(id || "")) || null;
+}
+
+function setQuestionBankStatus(message = "", kind = "") {
+  ui.questionBankStatus.textContent = message;
+  ui.questionBankStatus.classList.toggle("success", kind === "success");
+  ui.questionBankStatus.classList.toggle("error", kind === "error");
 }
 
 function listWindow(kind, rows) {
@@ -522,10 +561,249 @@ function renderPerformanceLists(scope) {
   renderComparisonBars(ui.userComparison, users.map(item => ({ label: item.label, value: item.score, detail: `${Math.round(item.score)}% · ${item.count} attempt${item.count === 1 ? "" : "s"}` })), { maxValue: 100, axisLabel: "100%", legend: "Average score by anonymous user", empty: "No user comparison is available for this view.", listKey: "userComparison", render: () => renderPerformanceLists(scope) });
 }
 
+function updateQuestionModalLock() {
+  const open = !ui.questionPanelBackdrop.classList.contains("hidden") || !ui.questionConfirmBackdrop.classList.contains("hidden");
+  document.body.classList.toggle("admin-modal-open", open);
+}
+
+function openQuestionPanel(title) {
+  ui.questionPanelTitle.textContent = title;
+  ui.questionPanelBackdrop.classList.remove("hidden");
+  ui.questionPanelBackdrop.setAttribute("aria-hidden", "false");
+  updateQuestionModalLock();
+  requestAnimationFrame(() => ui.questionPanelClose.focus());
+}
+
+function closeQuestionPanel() {
+  ui.questionPanelBackdrop.classList.add("hidden");
+  ui.questionPanelBackdrop.setAttribute("aria-hidden", "true");
+  ui.questionPanelContent.replaceChildren();
+  updateQuestionModalLock();
+  ui.addQuestion.focus();
+}
+
+function closeQuestionConfirmation() {
+  ui.questionConfirmBackdrop.classList.add("hidden");
+  ui.questionConfirmBackdrop.setAttribute("aria-hidden", "true");
+  ui.questionConfirmAction.disabled = false;
+  ui.questionConfirmCancel.disabled = false;
+  pendingConfirmedAction = null;
+  updateQuestionModalLock();
+}
+
+function openQuestionConfirmation({ title, message, actionLabel, danger = false, action }) {
+  ui.questionConfirmTitle.textContent = title;
+  ui.questionConfirmMessage.textContent = message;
+  ui.questionConfirmAction.textContent = actionLabel;
+  ui.questionConfirmAction.classList.toggle("danger", danger);
+  pendingConfirmedAction = action;
+  ui.questionConfirmBackdrop.classList.remove("hidden");
+  ui.questionConfirmBackdrop.setAttribute("aria-hidden", "false");
+  updateQuestionModalLock();
+  requestAnimationFrame(() => ui.questionConfirmCancel.focus());
+}
+
+function correctAnswerIndexes(question) {
+  if (Array.isArray(question?.correctIndexes)) return new Set(question.correctIndexes.map(Number));
+  return new Set((question?.options || []).map((option, index) => option.correct ? index : -1).filter(index => index >= 0));
+}
+
+function renderQuestionDetail(question) {
+  const correct = correctAnswerIndexes(question);
+  openQuestionPanel("Question Details");
+  ui.questionPanelContent.innerHTML = `
+    <div class="question-detail-meta">
+      <span>${escapeHtml(question.test || "Question Bank")}</span>
+      <span>Question ${escapeHtml(question.number || "—")}</span>
+      <span>${correct.size > 1 ? "Select all that apply" : "Select one"}</span>
+    </div>
+    <p class="question-detail-text">${escapeHtml(question.question)}</p>
+    <ol class="question-detail-answers">
+      ${(question.options || []).map((option, index) => {
+        const isCorrect = correct.has(index);
+        return `<li class="question-detail-answer ${isCorrect ? "correct" : ""}"><span class="question-detail-answer-marker">${String.fromCharCode(65 + index)}</span><span>${escapeHtml(option.text)}${isCorrect ? "<b>Correct answer</b>" : ""}</span></li>`;
+      }).join("")}
+    </ol>
+    <div class="question-detail-explanation"><h3>Explanation</h3><p>${escapeHtml(question.explanation || "No explanation is available.")}</p></div>
+    <div class="question-panel-actions">
+      <button type="button" class="secondary" data-question-edit>Edit Question</button>
+      <button type="button" class="danger" data-question-delete>Delete Question</button>
+    </div>`;
+  ui.questionPanelContent.querySelector("[data-question-edit]").addEventListener("click", () => renderQuestionForm(question));
+  ui.questionPanelContent.querySelector("[data-question-delete]").addEventListener("click", () => {
+    openQuestionConfirmation({
+      title: "Delete This Question?",
+      message: "This permanently removes the question from the shared question bank for all users. Historical quiz statistics will remain, but this deletion cannot be undone.",
+      actionLabel: "Delete for Everyone",
+      danger: true,
+      action: () => deleteSharedQuestion(question)
+    });
+  });
+}
+
+function questionChoiceRow(option, index) {
+  return `<div class="question-choice-row" data-choice-row>
+    <label class="question-choice-correct"><input type="checkbox" data-choice-correct ${option.correct ? "checked" : ""} /><span>Correct</span></label>
+    <input type="text" data-choice-text value="${escapeHtml(option.text || "")}" aria-label="Answer choice ${index + 1}" maxlength="2000" required />
+    <button type="button" class="secondary remove-choice" data-remove-choice="${index}">Remove</button>
+  </div>`;
+}
+
+function validateQuestionPayload(payload) {
+  if (!payload.test) return "Enter the category or test name.";
+  if (!Number.isInteger(payload.number) || payload.number < 1) return "Enter a valid question number.";
+  if (!payload.question) return "Enter the full question text.";
+  if (!payload.explanation) return "Enter an explanation.";
+  if (payload.options.length < 2 || payload.options.length > 8) return "Use between 2 and 8 answer choices.";
+  if (payload.options.some(option => !option.text)) return "Enter text for every answer choice.";
+  const correctCount = payload.options.filter(option => option.correct).length;
+  if (!correctCount) return "Select at least one correct answer.";
+  if (correctCount === payload.options.length) return "At least one answer choice must be incorrect.";
+  return "";
+}
+
+function updateQuestionInLocalBank(question) {
+  const id = questionId(question);
+  const index = questionBank.findIndex(item => questionId(item) === id);
+  if (index >= 0) questionBank[index] = question;
+  else questionBank.push(question);
+}
+
+async function saveSharedQuestion(payload, form, isEdit) {
+  const feedback = form.querySelector("[data-question-feedback]");
+  const submit = form.querySelector("[type='submit']");
+  submit.disabled = true;
+  feedback.className = "question-form-feedback";
+  feedback.textContent = isEdit ? "Saving the confirmed changes…" : "Adding the question to the shared bank…";
+  try {
+    const result = await supabase.rpc("admin_upsert_quiz_question", { p_question: payload });
+    if (result.error) throw result.error;
+    const saved = result.data;
+    updateQuestionInLocalBank(saved);
+    renderQuestionInsights(selectedProfiles());
+    setQuestionBankStatus(isEdit ? "Question updated for all users." : "Question added to the shared bank for all users.", "success");
+    if (isEdit) renderQuestionDetail(saved);
+    else closeQuestionPanel();
+  } catch (error) {
+    console.error(error);
+    feedback.className = "question-form-feedback error";
+    feedback.textContent = `The question could not be saved: ${error.message || "Unknown error"}`;
+    submit.disabled = false;
+  }
+}
+
+async function deleteSharedQuestion(question) {
+  ui.questionConfirmAction.disabled = true;
+  ui.questionConfirmCancel.disabled = true;
+  ui.questionConfirmAction.textContent = "Deleting…";
+  try {
+    const result = await supabase.rpc("admin_delete_quiz_question", { p_question_id: questionId(question) });
+    if (result.error) throw result.error;
+    questionBank = questionBank.filter(item => questionId(item) !== questionId(question));
+    closeQuestionConfirmation();
+    closeQuestionPanel();
+    renderQuestionInsights(selectedProfiles());
+    setQuestionBankStatus("Question deleted from the shared bank for all users.", "success");
+  } catch (error) {
+    console.error(error);
+    closeQuestionConfirmation();
+    setQuestionBankStatus(`The question could not be deleted: ${error.message || "Unknown error"}`, "error");
+  }
+}
+
+function renderQuestionForm(existing = null) {
+  const isEdit = Boolean(existing);
+  const initialCorrect = correctAnswerIndexes(existing);
+  let draftOptions = isEdit
+    ? (existing.options || []).map((option, index) => ({ text: String(option.text || ""), correct: initialCorrect.has(index) }))
+    : [{ text: "", correct: true }, { text: "", correct: false }, { text: "", correct: false }, { text: "", correct: false }];
+  openQuestionPanel(isEdit ? "Edit Question" : "Add Question");
+  ui.questionPanelContent.innerHTML = `
+    <form class="question-entry-form" novalidate>
+      <div class="question-entry-grid">
+        <label>Category or Test Name<input type="text" name="test" value="${escapeHtml(existing?.test || "")}" maxlength="100" placeholder="Practice Test 1" required /></label>
+        <label>Question Number<input type="number" name="number" value="${escapeHtml(existing?.number || "")}" min="1" max="999999" inputmode="numeric" required /></label>
+      </div>
+      <label>Question Text<textarea name="question" maxlength="4000" required>${escapeHtml(existing?.question || "")}</textarea></label>
+      <div class="question-choices-heading"><h3>Answer Choices</h3><button type="button" class="secondary" data-add-choice>+ Add Choice</button></div>
+      <div class="question-choice-list" data-choice-list></div>
+      <label>Explanation<textarea name="explanation" maxlength="8000" required>${escapeHtml(existing?.explanation || "")}</textarea></label>
+      <p class="question-form-feedback" data-question-feedback role="status"></p>
+      <div class="question-panel-actions">
+        <button type="button" class="secondary" data-question-cancel>Cancel</button>
+        <button type="submit">${isEdit ? "Review Changes" : "Add Question"}</button>
+      </div>
+    </form>`;
+  const form = ui.questionPanelContent.querySelector("form");
+  const choiceList = form.querySelector("[data-choice-list]");
+  const readChoices = () => [...choiceList.querySelectorAll("[data-choice-row]")].map(row => ({
+    text: row.querySelector("[data-choice-text]").value.trim(),
+    correct: row.querySelector("[data-choice-correct]").checked
+  }));
+  const renderChoices = () => {
+    choiceList.innerHTML = draftOptions.map(questionChoiceRow).join("");
+    choiceList.querySelectorAll("[data-remove-choice]").forEach(button => button.addEventListener("click", () => {
+      draftOptions = readChoices();
+      if (draftOptions.length <= 2) {
+        const feedback = form.querySelector("[data-question-feedback]");
+        feedback.className = "question-form-feedback error";
+        feedback.textContent = "A question must have at least two answer choices.";
+        return;
+      }
+      draftOptions.splice(Number(button.dataset.removeChoice), 1);
+      renderChoices();
+    }));
+  };
+  renderChoices();
+  form.querySelector("[data-add-choice]").addEventListener("click", () => {
+    draftOptions = readChoices();
+    if (draftOptions.length >= 8) {
+      const feedback = form.querySelector("[data-question-feedback]");
+      feedback.className = "question-form-feedback error";
+      feedback.textContent = "A question can have no more than eight answer choices.";
+      return;
+    }
+    draftOptions.push({ text: "", correct: false });
+    renderChoices();
+    choiceList.querySelector("[data-choice-row]:last-child [data-choice-text]")?.focus();
+  });
+  form.querySelector("[data-question-cancel]").addEventListener("click", () => isEdit ? renderQuestionDetail(existing) : closeQuestionPanel());
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    draftOptions = readChoices();
+    const payload = {
+      ...(isEdit ? { id: questionId(existing) } : {}),
+      test: form.elements.test.value.trim(),
+      number: Number(form.elements.number.value),
+      question: form.elements.question.value.trim(),
+      options: draftOptions,
+      explanation: form.elements.explanation.value.trim()
+    };
+    const validationError = validateQuestionPayload(payload);
+    const feedback = form.querySelector("[data-question-feedback]");
+    if (validationError) {
+      feedback.className = "question-form-feedback error";
+      feedback.textContent = validationError;
+      return;
+    }
+    feedback.textContent = "";
+    if (isEdit) {
+      openQuestionConfirmation({
+        title: "Apply These Edits?",
+        message: "Once confirmed, this question, its answer choices, correct answer selection, and explanation will replace the current version for all users.",
+        actionLabel: "Update for Everyone",
+        action: () => saveSharedQuestion(payload, form, true)
+      });
+    } else {
+      saveSharedQuestion(payload, form, false);
+    }
+  });
+}
+
 function mergeQuestionBuckets(scope) {
   const merged = {};
   scope.forEach(profile => Object.entries(profile.stats?.questions || {}).forEach(([id, item]) => {
-    if (!merged[id]) merged[id] = { question: item.question, test: item.test, number: item.number, timesSeen: 0, timesCorrect: 0, timesWrong: 0 };
+    if (!merged[id]) merged[id] = { id, question: item.question, test: item.test, number: item.number, timesSeen: 0, timesCorrect: 0, timesWrong: 0 };
     merged[id].timesSeen += Number(item.timesSeen) || 0;
     merged[id].timesCorrect += Number(item.timesCorrect) || 0;
     merged[id].timesWrong += Number(item.timesWrong) || 0;
@@ -534,9 +812,15 @@ function mergeQuestionBuckets(scope) {
 }
 
 function renderQuestionInsights(scope) {
-  const rows = Object.values(mergeQuestionBuckets(scope)).filter(item => item.timesSeen > 0).map(item => ({ ...item, accuracy: item.timesCorrect / item.timesSeen * 100 })).sort((a, b) => a.accuracy - b.accuracy || b.timesSeen - a.timesSeen);
+  const activeIds = new Set(questionBank.map(questionId));
+  const rows = Object.values(mergeQuestionBuckets(scope)).filter(item => item.timesSeen > 0 && activeIds.has(item.id)).map(item => ({ ...item, accuracy: item.timesCorrect / item.timesSeen * 100 })).sort((a, b) => a.accuracy - b.accuracy || b.timesSeen - a.timesSeen);
   const page = listWindow("questions", rows);
-  ui.questions.innerHTML = rows.length ? `${listControls("questions", rows.length)}<div class="admin-table-scroll ${page.state.limit === 20 ? "expanded" : ""}"><table class="admin-table"><thead><tr><th>Question</th><th>Seen</th><th>Wrong</th><th>Accuracy</th></tr></thead><tbody>${page.rows.map(item => `<tr><td><strong>${escapeHtml(item.test || "Question")} ${escapeHtml(item.number || "")}</strong><br><span class="question-preview" title="${escapeHtml(item.question || "")}">${escapeHtml(shortPreview(item.question))}</span></td><td>${item.timesSeen}</td><td>${item.timesWrong}</td><td>${Math.round(item.accuracy)}%</td></tr>`).join("")}</tbody></table></div>` : `<div class="region-empty">No question-performance data is available for this view.</div>`;
+  ui.questions.innerHTML = rows.length ? `${listControls("questions", rows.length)}<div class="admin-table-scroll ${page.state.limit === 20 ? "expanded" : ""}"><table class="admin-table"><thead><tr><th>Question</th><th>Seen</th><th>Wrong</th><th>Accuracy</th><th></th></tr></thead><tbody>${page.rows.map(item => `<tr><td><strong>${escapeHtml(item.test || "Question")} ${escapeHtml(item.number || "")}</strong><br><span class="question-preview" title="${escapeHtml(item.question || "")}">${escapeHtml(shortPreview(item.question))}</span></td><td>${item.timesSeen}</td><td>${item.timesWrong}</td><td>${Math.round(item.accuracy)}%</td><td><button type="button" data-view-question="${escapeHtml(item.id)}">View</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="region-empty">No question-performance data is available for this view.</div>`;
+  ui.questions.querySelectorAll("[data-view-question]").forEach(button => button.addEventListener("click", () => {
+    const question = questionFromBank(button.dataset.viewQuestion);
+    if (question) renderQuestionDetail(question);
+    else setQuestionBankStatus("That question is no longer available in the shared bank.", "error");
+  }));
   bindListControls(ui.questions, "questions", () => renderQuestionInsights(scope));
 }
 
@@ -594,10 +878,33 @@ function renderDashboard() {
   saveAdminUiState();
 }
 
+async function loadQuestionBank() {
+  if (!baseQuestionBank.length) {
+    const response = await fetch("sfmc_question_data.json", { cache: "no-store" });
+    if (!response.ok) throw new Error(`Bundled question bank could not load (${response.status}).`);
+    const bundled = await response.json();
+    if (!Array.isArray(bundled)) throw new Error("Bundled question bank is invalid.");
+    baseQuestionBank = bundled;
+  }
+  applyQuestionBankChanges([]);
+  const result = await supabase.rpc("get_quiz_question_bank_changes");
+  if (result.error) throw result.error;
+  applyQuestionBankChanges(result.data);
+}
+
 async function loadSnapshot() {
   ui.freshness.textContent = "Refreshing analytics…";
-  const result = await supabase.rpc("admin_quiz_snapshot");
+  const [result, questionResult] = await Promise.all([
+    supabase.rpc("admin_quiz_snapshot"),
+    loadQuestionBank().then(() => ({ error: null })).catch(error => ({ error }))
+  ]);
   if (result.error) throw result.error;
+  if (questionResult.error) {
+    console.error(questionResult.error);
+    setQuestionBankStatus(`Shared question-bank changes could not load: ${questionResult.error.message}`, "error");
+  } else {
+    setQuestionBankStatus();
+  }
   profiles = Array.isArray(result.data) ? result.data : [];
   ui.login.classList.add("hidden");
   ui.dashboard.classList.remove("hidden");
@@ -666,4 +973,29 @@ ui.categoryFilter.addEventListener("change", () => updateView("category", ui.cat
 ui.lengthFilter.addEventListener("change", () => updateView("length", ui.lengthFilter.value));
 ui.rangeFilter.addEventListener("change", () => updateView("rangeDays", Number(ui.rangeFilter.value)));
 ui.metricFilter.addEventListener("change", () => updateView("metric", ui.metricFilter.value));
+ui.addQuestion.addEventListener("click", () => renderQuestionForm());
+ui.questionPanelClose.addEventListener("click", closeQuestionPanel);
+ui.questionPanelBackdrop.addEventListener("click", event => {
+  if (event.target === ui.questionPanelBackdrop) closeQuestionPanel();
+});
+ui.questionConfirmCancel.addEventListener("click", closeQuestionConfirmation);
+ui.questionConfirmBackdrop.addEventListener("click", event => {
+  if (event.target === ui.questionConfirmBackdrop) closeQuestionConfirmation();
+});
+ui.questionConfirmAction.addEventListener("click", async () => {
+  if (!pendingConfirmedAction) return;
+  const action = pendingConfirmedAction;
+  ui.questionConfirmAction.disabled = true;
+  ui.questionConfirmCancel.disabled = true;
+  try {
+    await action();
+  } finally {
+    if (!ui.questionConfirmBackdrop.classList.contains("hidden")) closeQuestionConfirmation();
+  }
+});
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  if (!ui.questionConfirmBackdrop.classList.contains("hidden")) closeQuestionConfirmation();
+  else if (!ui.questionPanelBackdrop.classList.contains("hidden")) closeQuestionPanel();
+});
 window.addEventListener("pagehide", saveAdminUiState);

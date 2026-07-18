@@ -45,7 +45,7 @@
     <div class="settings-admin-access"><div><strong>Administrator tools</strong><span>Open the protected analytics dashboard.</span></div><a class="settings-admin-link" href="admin.html">Administrator Access</a></div>
   </div></div></div>
   <div id="statsPanel" class="collapsible-home-panel" aria-hidden="true"><div class="collapsible-home-panel-inner"><div class="stats-card"><div class="settings-title-row"><h3>Stats</h3><button id="statsClose" class="settings-close secondary" type="button">Close</button></div><div id="statsSummary"></div></div></div></div>
-  <div id="analyticsOptInPrompt" class="app-dialog-backdrop hidden" aria-hidden="true"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="analyticsOptInTitle" aria-describedby="analyticsOptInDescription"><h3 id="analyticsOptInTitle">Help improve the Certification Academy</h3><p id="analyticsOptInDescription">Would you like to anonymously share quiz performance data for app analytics? No name, email, password, or raw IP address is stored. You can change this choice at any time in Settings.</p><div class="app-dialog-actions"><button id="declineAnalyticsOptIn" class="secondary" type="button">Not Now</button><button id="acceptAnalyticsOptIn" type="button">Share Anonymous Analytics</button></div></section></div>
+  <div id="analyticsOptInPrompt" class="app-dialog-backdrop hidden" aria-hidden="true"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="analyticsOptInTitle" aria-describedby="analyticsOptInDescription"><h3 id="analyticsOptInTitle">Help improve the Certification Academy</h3><p id="analyticsOptInDescription">Would you like to anonymously share quiz performance data for app analytics? No name, email, password, or raw IP address is stored. You can change this choice at any time in Settings.</p><div class="app-dialog-actions"><button id="declineAnalyticsOptIn" class="secondary" type="button">Not Now</button><button id="acceptAnalyticsOptIn" type="button">Share</button></div></section></div>
   <div class="grid" id="modeGrid">
     <div class="mode-card category-card" id="testModeCard"><h3>Test</h3><p>Measure your current knowledge without feedback until the results screen.</p><div class="mode-length-control"><div class="mode-length-label">Number of Questions</div><div class="mode-length-actions" aria-label="Test question count"><button type="button" data-play-mode="test" data-question-count="10">10</button><button type="button" data-play-mode="test" data-question-count="20">20</button><button type="button" data-play-mode="test" data-question-count="50">50</button></div></div></div>
     <div class="mode-card category-card" id="quizModeCard"><h3>Quiz</h3><p>Answer random questions with immediate feedback and explanations as you learn.</p><div class="mode-length-control"><div class="mode-length-label">Number of Questions</div><div class="mode-length-actions" aria-label="Quiz question count"><button type="button" data-play-mode="quiz" data-question-count="10">10</button><button type="button" data-play-mode="quiz" data-question-count="20">20</button><button type="button" data-play-mode="quiz" data-question-count="50">50</button></div></div></div>
@@ -144,6 +144,21 @@ function clearStatsFromSync(){try{localStorage.removeItem(STATS_KEY);localStorag
 function clearStoredStats(){clearStatsFromSync();window.dispatchEvent(new CustomEvent("sfmc:stats-reset"));}
 function formatDuration(sec){sec=Math.max(0,Math.round(Number(sec)||0));const h=Math.floor(sec/3600);const m=Math.floor((sec%3600)/60);if(h>0)return `${h}h ${m}m`;return `${m}m ${sec%60}s`;}
 function questionId(q){return String(q.id||`${q.test||"Practice Test"}|${q.number||""}|${q.question||""}`).trim();}
+function applyQuestionBankChanges(changes){
+  if(!Array.isArray(changes))return;
+  const bank=new Map(QUESTIONS.map(question=>[questionId(question),question]));
+  changes.forEach(change=>{
+    const id=String(change?.id||change?.question?.id||"").trim();
+    if(!id)return;
+    if(change.deleted){bank.delete(id);return;}
+    const question=change.question;
+    if(!question||typeof question!=="object"||!String(question.question||"").trim()||!Array.isArray(question.options)||question.options.length<2)return;
+    bank.set(id,{...question,id});
+  });
+  state.allQuestions=[...bank.values()];
+  if(!isQuizActive())state.questions=state.allQuestions;
+  if(typeof renderStatsSummary==="function")renderStatsSummary();
+}
 function correctIndexes(q){return q.correctIndexes||q.options.map((o,i)=>o.correct?i:-1).filter(i=>i>-1)}
 function arraysEqual(a,b){if(a.length!==b.length)return false;const s=new Set(a.map(Number));return b.every(x=>s.has(Number(x)))}
 function isCorrect(q,sel){return arraysEqual(sel,correctIndexes(q))}
@@ -315,7 +330,7 @@ function start(sample){
   state.questions=qs;state.mode=mode;state.sampleType=parsed.sampleType;state.playCategory=category;state.questionCount=count;state.currentIndex=0;state.answers=Array(qs.length).fill(null).map(()=>[]);state.checked=Array(qs.length).fill(false);state.locked=false;state.note=note;state.startedAt=Date.now();state.recordedSession=false;startStudyClock();renderCurrent("question");
 }
 function showModeSelect(){hideCelebration();if(isQuizActive())stopStudyClock();els.quizArea.classList.add("hidden");els.resultsArea.classList.add("hidden");els.modeSelect.classList.remove("hidden");setSettingsOpen(false);setStatsOpen(false);renderStatsSummary();scrollWindow(0);}
-window.SFMC_QUIZ_BRIDGE={getStats,getDeviceStats,mergeStatsSnapshots,replaceMergedStats,clearStatsFromSync,getDeviceId:()=>deviceId,getThemePreference:()=>themePreference,setThemePreferenceFromSync:choice=>setThemePreference(choice,false),getCertificationState,setCertificationStateFromSync,openSettings:()=>setSettingsOpen(true),renderStats:renderStatsSummary,emptyStats};
+window.SFMC_QUIZ_BRIDGE={getStats,getDeviceStats,mergeStatsSnapshots,replaceMergedStats,clearStatsFromSync,applyQuestionBankChanges,getDeviceId:()=>deviceId,getThemePreference:()=>themePreference,setThemePreferenceFromSync:choice=>setThemePreference(choice,false),getCertificationState,setCertificationStateFromSync,openSettings:()=>setSettingsOpen(true),renderStats:renderStatsSummary,emptyStats};
 window.dispatchEvent(new CustomEvent("sfmc:bridge-ready"));
 document.querySelectorAll("[data-play-mode][data-question-count]").forEach(btn=>{btn.onclick=()=>start(`${btn.dataset.playMode}-${btn.dataset.questionCount}`);});renderCertificationState();applyThemePreference();showModeSelect();
 })();
