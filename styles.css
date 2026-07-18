@@ -277,16 +277,19 @@ button:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:720px){.settings-admin-access{margin:12px 0 0;padding:12px;border:1.5px solid var(--soft-border);border-radius:16px;background:rgba(255,253,246,.92);overflow:hidden}}
 @media(max-width:520px){.settings-admin-access{align-items:stretch;flex-direction:column}.settings-admin-link{width:100%}.app-dialog{padding:16px}.app-dialog-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(min-width:721px){
-  .settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:12px}
+  .settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"appearance sync" "analytics reset" "analytics certification";gap:14px;margin-top:12px}
   .settings-grid>.settings-block{min-width:0;margin:0;padding:12px;border:1.5px solid var(--soft-border);border-radius:18px;background:rgba(255,253,246,.88)}
   .settings-grid .setting-row{align-items:stretch;flex-direction:column;gap:12px;padding:0;border:0;border-radius:0;background:transparent}
   .settings-grid .segmented-toggle{width:100%}
   .settings-grid .settings-actions{width:100%;justify-content:center}
   .settings-grid .settings-actions button{flex:0 1 auto;min-width:132px;max-width:220px}
   .settings-grid .switch-control{align-self:flex-start}
-  .settings-grid>.settings-danger-zone{display:flex;align-items:stretch;align-self:start;justify-content:flex-start;flex-direction:column}
+  .settings-grid>.settings-appearance{grid-area:appearance}
+  .settings-grid>#cloudSyncSettings{grid-area:sync}
+  .settings-grid>#analyticsSettings{grid-area:analytics}
+  .settings-grid>.settings-danger-zone{grid-area:reset;display:flex;align-items:stretch;justify-content:flex-start;flex-direction:column}
   .settings-grid>.settings-danger-zone .danger{align-self:center;width:auto;min-width:148px;max-width:220px}
-  .settings-grid>.certification-settings{grid-column:2}
+  .settings-grid>.certification-settings{grid-area:certification}
 }
 
 .settings-surface,.settings-block,.setting-row,.segmented-toggle,.pairing-panel,.question-card,.quiz-status,.stat,.note,.feedback,.explanation,.score-hero,.review-item,details,.stats-card,.stats-filter-section,.stats-cell,.quiz-actions,.stats-control-panel,.graph-card,.graph-empty{

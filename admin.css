@@ -51,7 +51,7 @@
 .admin-list-controls>div{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:7px}
 .admin-list-controls button{width:auto;min-height:34px;padding:6px 10px;font-size:12px}
 .admin-table-scroll{display:block;width:100%;max-width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-inline:contain}
-.admin-table-scroll.expanded{max-height:560px;overscroll-behavior:contain}
+.admin-table-scroll.expanded{max-height:none;overflow-y:visible;overscroll-behavior:contain}
 .admin-table{width:100%;min-width:720px;max-width:none;border-collapse:collapse}
 .admin-table th,.admin-table td{padding:11px 12px;border-bottom:1px solid var(--soft-border);text-align:left;vertical-align:top}
 .admin-table th{position:sticky;top:0;z-index:1;background:#f8f3e9;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
