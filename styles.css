@@ -730,3 +730,24 @@ html[data-theme="dark"] .graph-empty{
   html[data-theme="dark"] .home-tool-button:not(:active):hover{background:linear-gradient(180deg,#293b61 0%,#223251 100%)}
   html[data-theme="dark"] label.option:not(:active):hover{background:#202d4a;border-color:#7d8bb7}
 }
+
+/* Responsive page positioning and control refinements */
+body.quiz-page{
+  display:flex;
+  flex-direction:column;
+  padding-top:calc(14px + env(safe-area-inset-top));
+}
+body.quiz-page .app{
+  flex:0 0 auto;
+  margin-block:auto;
+  margin-inline:auto;
+}
+.analytics-control{align-items:start}
+.analytics-history-option input,
+.certification-option input{margin-right:10px}
+.graph-time-zone-only{justify-content:flex-end}
+.quiz-page .chart-legend .time-zone-label{margin-left:auto}
+
+@media(max-width:720px){
+  body.quiz-page{padding-top:calc(10px + env(safe-area-inset-top))}
+}

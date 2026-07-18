@@ -179,3 +179,51 @@ html[data-theme="dark"] .admin-confirm-modal{background:linear-gradient(180deg,#
   .admin-kpi-grid{grid-template-columns:1fr}
   .admin-panel{padding:14px}
 }
+
+.admin-add-question{
+  border-radius:11px;
+}
+.admin-history-list{
+  padding-left:34px;
+  list-style:decimal outside;
+}
+.admin-history-list li::marker{
+  color:var(--text);
+  font-weight:900;
+}
+
+@media(min-width:901px){
+  .admin-filter-layout{
+    grid-template-columns:repeat(5,minmax(0,1fr));
+    align-items:stretch;
+    gap:12px;
+  }
+  .admin-filter-layout label{
+    grid-template-rows:auto 48px;
+    align-content:start;
+    gap:7px;
+    line-height:1.2;
+  }
+  .admin-filter-layout select{
+    width:100%;
+    height:48px;
+    min-height:48px;
+    padding:10px 38px 10px 12px;
+  }
+}
+
+@media(max-width:720px){
+  .admin-modal-backdrop{
+    place-items:start center;
+    overflow-y:auto;
+    padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+  }
+  .admin-question-panel{
+    max-height:none;
+    overflow:visible;
+  }
+  .admin-confirm-modal{
+    max-height:none;
+    margin-block:auto;
+  }
+}
